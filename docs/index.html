@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>All-22 Film Search</title>
+<meta name="description" content="A free Chrome extension that makes NFL Pro's film room searchable. Requires an active NFL Pro subscription. Unofficial; may stop working at any time.">
+<style>
+:root{color-scheme:dark}
+body{margin:0;background:#121212;color:#e6e6e6;font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif}
+.w{max-width:680px;margin:0 auto;padding:40px 20px 60px}
+h1{font-size:14px;letter-spacing:.16em;text-transform:uppercase;color:#b1924f;margin:0 0 6px}
+h2{font-size:13px;letter-spacing:.12em;text-transform:uppercase;color:#b1924f;margin:34px 0 8px}
+p{margin:8px 0}
+.lede{font-size:19px;line-height:1.4;color:#f2f2f2;margin:0 0 18px}
+.warn{background:#1a1710;border:1px solid #b1924f;border-radius:7px;padding:14px 18px;margin:18px 0}
+.warn b{display:block;color:#b1924f;font-size:11px;letter-spacing:.14em;text-transform:uppercase;margin-bottom:6px}
+.warn ul{margin:0;padding-left:18px}
+.warn li{margin:4px 0}
+.box{background:#191919;border:1px solid #282828;border-radius:7px;padding:14px 18px;margin:14px 0}
+a{color:#b1924f;text-decoration:none;border-bottom:1px dotted #b1924f80}
+a:hover{color:#c9a961;border-bottom-style:solid}
+.btn{display:inline-block;background:#b1924f;color:#17130a;border:0;border-radius:5px;padding:10px 16px;font-weight:600;margin:6px 10px 6px 0}
+.btn:hover{background:#c9a961;color:#17130a}
+.btn.q{background:transparent;color:#adadad;border:1px solid #282828}
+.btn.q:hover{color:#b1924f;border-color:#b1924f}
+code{background:#1e1e1e;border:1px solid #282828;border-radius:4px;padding:1px 6px;font-family:ui-monospace,Menlo,monospace;font-size:13px}
+ol{padding-left:22px}li{margin:6px 0}
+.m{color:#adadad;font-size:13px}
+.foot{margin-top:40px;padding-top:14px;border-top:1px solid #282828;color:#8f8f8f;font-size:12px}
+</style>
+<div class="w">
+  <h1>All-22 Film Search</h1>
+  <p class="lede">A free Chrome extension that makes NFL Pro's film room searchable.
+  Filter 337 columns of nflverse play-by-play on your own machine, click a play,
+  and watch that clip in NFL Pro's own player.</p>
+
+  <div class="warn">
+    <b>Read this first</b>
+    <ul>
+      <li><strong>You need an active NFL Pro subscription.</strong> Without one the extension does nothing useful. Clips play in NFL Pro's own player, under your own account.</li>
+      <li><strong>This is unofficial.</strong> It is not affiliated with, endorsed by, or connected to the NFL or NFL Pro.</li>
+      <li><strong>It may stop working at any time, permanently.</strong> It relies on undocumented NFL Pro endpoints. If NFL changes them, the extension breaks, and there may be no fix.</li>
+      <li><strong>No video is downloaded, copied, or re-hosted.</strong> Search is entirely local. The only requests it makes to NFL are one clip lookup per play you click, which is less than the film room itself makes.</li>
+    </ul>
+  </div>
+
+  <h2>Install</h2>
+  <p>
+    <a class="btn" href="CWS_URL_PLACEHOLDER">Add to Chrome</a>
+    <a class="btn q" href="https://github.com/boorish-sports/all-22/releases/latest">Download the zip</a>
+  </p>
+  <p class="m">Chrome Web Store is the easy route and updates itself. The zip is the fallback if the store
+  listing is ever unavailable: unzip it, open <code>chrome://extensions</code>, turn on
+  <strong>Developer mode</strong>, click <strong>Load unpacked</strong>, and pick the unzipped folder.
+  Then open <a href="https://pro.nfl.com/film/plays">pro.nfl.com/film/plays</a> and click the gold
+  <strong>ALL-22</strong> tab on the right edge. The first run downloads a 15 MB play index from GitHub, once.</p>
+
+  <h2>What it does</h2>
+  <div class="box">
+    <p>Every nflverse play-by-play column is a filter: tacklers, pressures, EPA, CPOE, personnel,
+    play action, motion, coverage, drops, throwaways. Pick a player and a role ("Will Anderson, sacks"),
+    or build any combination of column filters, and the list of matching plays appears instantly.
+    Click one and the Sideline and Endzone angles play in a side panel, with frame stepping,
+    speed control, and keyboard shortcuts.</p>
+    <p class="m">Search runs in your browser against a SQLite index built from
+    <a href="https://github.com/nflverse/nflverse-data">nflverse</a> (CC&nbsp;BY&nbsp;4.0) with FTN charting.
+    Nothing about what you search leaves your machine.</p>
+  </div>
+
+  <h2>Tip jar</h2>
+  <p>The extension is free and stays free. If it saved you time and you want to say thanks:</p>
+  <p><a class="btn" href="TIP_URL_PLACEHOLDER">Leave a tip</a></p>
+  <div class="box">
+    <p><strong>What a tip is, and isn't.</strong> A tip is thanks for work that has already been done.
+    It is not a purchase, a licence, or a subscription; nothing is owed in return, and tips are not refunded.
+    If NFL Pro changes and the extension stops working, this page will say so and the tip button comes
+    down the same day. Please read the box at the top of this page before tipping.</p>
+  </div>
+
+  <h2>Privacy</h2>
+  <p>The extension collects nothing and sends nothing to its author. It stores a small game-ID map and
+  your UI preferences in Chrome's local extension storage, caches the play index in your browser, and
+  makes requests only to GitHub (for the index) and to NFL Pro (for the clips you click, using your own
+  session). Full text: <a href="privacy.html">privacy policy</a>.</p>
+
+  <h2>Source and credits</h2>
+  <p>MIT-licensed code on <a href="https://github.com/boorish-sports/all-22">GitHub</a>. The play index is
+  derived from <a href="https://github.com/nflverse/nflverse-data">nflverse-data</a> (CC BY 4.0), with charting
+  by FTN Data published through nflverse; field definitions are from
+  <a href="https://github.com/nflverse/nflreadr">nflreadr</a> (MIT). Full notices in
+  <a href="https://github.com/boorish-sports/all-22/blob/main/NOTICE.md">NOTICE.md</a>.</p>
+
+  <div class="foot">Not affiliated with the National Football League, NFL Pro, nflverse, or FTN Data.
+  Report problems on <a href="https://github.com/boorish-sports/all-22/issues">GitHub issues</a>.</div>
+</div>
+</html>

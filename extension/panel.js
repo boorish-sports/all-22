@@ -5,16 +5,20 @@
  * only decrypt on nfl.com. So the search panel comes to the video, not the other
  * way round -- one tab, no popups, NFL's own player, your own subscription.
  *
- * Search itself is local (http://localhost:8722, nflverse SQLite, 372 columns).
- * Nothing is downloaded, cached or re-hosted.
+ * Search itself is local: nflverse SQLite (337 columns) running in the
+ * extension's offscreen document, reached through iso.js. The only requests
+ * that go to NFL are the clip lookups for plays the user actually selects --
+ * see secured() below. Nothing is downloaded, cached or re-hosted.
  */
 (() => {
   if (window.__all22) return;
   window.__all22 = true;
 
-  const API = "http://localhost:8722";
+  // Not a server. A fake origin so the paths below parse as URLs; iso.js maps
+  // each path to an extension message. Nothing is ever fetched from it.
+  const API = "http://all22.invalid";
   const ANGLES = ["Sideline", "Endzone"];     // All-22 coaches angles; Broadcast excluded
-  // localhost calls go through the isolated-world content script (CSP-immune)
+  // backend calls go through the isolated-world content script (CSP-immune)
   let seq = 0;
   const pending = new Map();
   window.addEventListener("message", ev => {
@@ -163,6 +167,74 @@
 
   /* ---------------- NFL Pro API (via the app's authed axios) ---------------- */
 
+  /* Every request to /api/secured/* goes through here, and this is the whole
+     of the extension's NFL traffic: one UUID lookup per game never seen on this
+     machine, one clip lookup per play the user selects. There is deliberately
+     no prefetching and no bulk enumeration anywhere -- a user with this panel
+     open generates less load than the same user clicking around the film room.
+
+     What this gate adds:
+       - one request in flight at a time, at least GAP ms apart. Holding "n"
+         auto-repeats at ~30 Hz; without this each repeat was a request.
+       - a rolling ceiling. Not a quota for people -- CEILING per hour is one
+         request every nine seconds for an hour, and a clip plus its second
+         angle takes twenty or thirty seconds to actually watch. It is a
+         backstop against a runaway loop, ours or a future one.
+       - no retries. A 401/403 means NFL Pro has stopped serving the endpoint
+         (or the session ended); we stop for the rest of the page and say so.
+         A 429 pauses for COOLDOWN. Nothing here ever re-issues a request on
+         its own; the next attempt is always the next thing the user clicks. */
+  const GAP = 1000, CEILING = 400, WINDOW = 3600e3, COOLDOWN = 5 * 60e3;
+  let chain = Promise.resolve(), lastAt = 0, stamps = [], apiDown = null, pausedUntil = 0;
+  const httpStatus = e => e && (e.statusCode || e.status ||
+                                (e.response && e.response.status)) || 0;
+  class ApiError extends Error {
+    constructor(msg, status) { super(msg); this.status = status; this.api = true; }
+  }
+  function apiGate() {
+    if (apiDown) {
+      throw new ApiError("NFL Pro is no longer serving this endpoint (HTTP " + apiDown +
+        "). It may have changed or your session may have ended -- reload the page to try again.", apiDown);
+    }
+    const now = Date.now();
+    if (now < pausedUntil) {
+      throw new ApiError("NFL Pro asked us to slow down (HTTP 429). Paused for " +
+        Math.ceil((pausedUntil - now) / 60e3) + " min.", 429);
+    }
+    stamps = stamps.filter(t => now - t < WINDOW);
+    if (stamps.length >= CEILING) {
+      const wait = Math.ceil((WINDOW - (now - stamps[0])) / 60e3);
+      throw new ApiError("Clip limit reached (" + CEILING + " per hour). Try again in " +
+        wait + " min.", 0);
+    }
+  }
+  function secured(path, params) {
+    const run = async () => {
+      apiGate();
+      const wait = lastAt + GAP - Date.now();
+      if (wait > 0) await new Promise(r => setTimeout(r, wait));
+      apiGate();                              // state may have changed while waiting
+      lastAt = Date.now();
+      stamps.push(lastAt);
+      try {
+        return await nuxt().$api.$get(path, { params });
+      } catch (e) {
+        const s = httpStatus(e);
+        if (s === 401 || s === 403) apiDown = s;
+        else if (s === 429) pausedUntil = Date.now() + COOLDOWN;
+        if (s) {
+          apiGate();                          // throws the dead / paused message
+          throw new ApiError("NFL Pro returned HTTP " + s + " for this clip.", s);
+        }
+        throw e;
+      }
+    };
+    // serialise: each call waits for the previous one, success or failure
+    const p = chain.then(run, run);
+    chain = p.catch(() => {});
+    return p;
+  }
+
   // nflverse old_game_id (2025090705) -> NFL Pro fapiGameId (UUID).
   // The coaches endpoint only accepts the UUID: pass the numeric id and it
   // returns 200 with zero items.
@@ -174,9 +246,8 @@
       const c = await backend(`/api/game_uuid?old_game_id=${key}`);
       if (c && c.fapi_game_id) { uuidCache.set(key, c.fapi_game_id); return c.fapi_game_id; }
     } catch {}
-    const d = await nuxt().$api.$get("/api/secured/videos/filmroom/plays", {
-      params: { season: row.season, seasonType: row.season_type, weekSlug: row.week_slug, gameId: key },
-    });
+    const d = await secured("/api/secured/videos/filmroom/plays",
+      { season: row.season, seasonType: row.season_type, weekSlug: row.week_slug, gameId: key });
     const uuid = d.plays && d.plays.length ? d.plays[0].fapiGameId : null;
     if (uuid) {
       uuidCache.set(key, uuid);
@@ -188,8 +259,7 @@
   async function clipFor(row) {
     const uuid = await gameUuid(row);
     if (!uuid) throw new Error("no NFL Pro game for " + row.old_game_id);
-    const d = await nuxt().$api.$get("/api/secured/videos/coaches",
-      { params: { gameId: uuid, playId: row.play_id } });
+    const d = await secured("/api/secured/videos/coaches", { gameId: uuid, playId: row.play_id });
     const items = d.items || [];
     const list = ANGLES.map(a => items.find(i => i.cameraSource === a)).filter(Boolean);
     if (!list.length) throw new Error("no Sideline/Endzone clip for this play");
@@ -653,6 +723,19 @@
   #all22 .dval b:hover{color:#c9a961;text-decoration:underline}
   #all22 .dn{color:#8f8f8f}
   #all22 .dempty{padding:16px 14px;color:#bdbdbd;font-size:12px}
+  #all22 .dfoot{padding:8px 14px;border-top:1px solid #282828;background:#191919;
+    color:#a3a3a3;font-size:10.5px;line-height:1.4}
+  #all22 .dfoot a{color:#b1924f;text-decoration:none}
+  #all22 .dfoot a:hover{color:#c9a961;text-decoration:underline}
+  #all22 .notice{padding:10px 14px 12px;border-bottom:1px solid #282828;background:#1a1710;
+    color:#e6e6e6;font-size:12px;line-height:1.45}
+  #all22 .notice[hidden]{display:none}
+  #all22 .notice > b{display:block;color:#b1924f;font-size:10px;letter-spacing:.14em;
+    text-transform:uppercase;margin-bottom:6px}
+  #all22 .notice ul{margin:0 0 8px;padding-left:18px}
+  #all22 .notice li{margin:3px 0}
+  #all22 .notice button{background:#b1924f;color:#17130a;border:0;padding:5px 12px;
+    border-radius:4px;font:600 12px inherit;cursor:pointer}
 
   #all22 .row{padding:9px 14px;border-bottom:1px solid #232323;cursor:pointer}
   #all22 .row:hover{background:#1e1e1e}
@@ -864,10 +947,40 @@
         <span class="dcount"></span>
       </div>
       <div class="dlist" id="a-dlist"></div>
+      <div class="dfoot">Definitions from <a href="https://github.com/nflverse/nflreadr" target="_blank" rel="noopener">nflreadr</a> (MIT).
+        Play data from <a href="https://github.com/nflverse/nflverse-data" target="_blank" rel="noopener">nflverse</a> (CC BY 4.0),
+        charting by FTN Data via nflverse. Not affiliated with the NFL, NFL Pro, nflverse or FTN.</div>
     </div>`;
   document.documentElement.appendChild(p);
 
   const q = s => p.querySelector(s);
+
+  /* First-run notice. The landing page is missed by most installs, so the
+     facts that matter go in the panel itself, once, until dismissed. The
+     dismissal is keyed by NOTICE_VERSION so a materially changed notice shows
+     again. Persisted through iso.js into chrome.storage.local. */
+  const NOTICE_VERSION = 1;
+  const notice = $("div");
+  notice.className = "notice";
+  notice.hidden = true;
+  notice.innerHTML = `
+    <b>Before you start</b>
+    <ul>
+      <li>This needs an <b>active NFL Pro subscription</b>. Clips play in NFL Pro's own player, under your account.</li>
+      <li>It is <b>unofficial</b> and not affiliated with the NFL or NFL Pro.</li>
+      <li>It uses <b>undocumented endpoints</b> that can change or disappear at any time. When that happens it will stop working, and there may be no fix.</li>
+      <li><b>No video is downloaded or re-hosted.</b> Search runs on your machine; the only requests to NFL are one clip lookup per play you click.</li>
+    </ul>
+    <button id="a-notice-ok">Got it</button>`;
+  q(".hd").insertAdjacentElement("afterend", notice);
+  backend("/api/prefs").then(prefs => {
+    if ((prefs && prefs.noticeDismissed) >= NOTICE_VERSION) return;
+    notice.hidden = false;
+  }).catch(() => { notice.hidden = false; });
+  q("#a-notice-ok").onclick = () => {
+    notice.hidden = true;
+    post("/api/prefs", { noticeDismissed: NOTICE_VERSION }).catch(() => {});
+  };
   const extra = [];   // active generic filters
 
   // ---- player autocomplete -------------------------------------------------
@@ -1464,7 +1577,12 @@
   // current result set + selection, shared by clicks and the keyboard
   let lastRows = [], selIdx = -1;
 
-  async function selectPlay(i) {
+  /* Selection is coalesced: while a clip is loading, further selections only
+     move the highlight, and when the load finishes the LATEST selection is
+     fetched. Holding "n" through twenty plays costs two requests, not twenty,
+     and a slow response for play 5 can never land on top of play 9. */
+  let fetching = false, wanted = -1;
+  function selectPlay(i) {
     const row = lastRows[i];
     if (!row) return;
     selIdx = i;
@@ -1473,13 +1591,32 @@
     const el = res.querySelector(`.row[data-i="${i}"]`);
     if (el) { el.classList.add("on"); el.scrollIntoView({ block: "nearest" }); }
     q("#all22-st").textContent = "loading clip…";
+    wanted = i;
+    if (!fetching) drain();
+  }
+  async function drain() {
+    fetching = true;
     try {
-      const pl = await clipFor(row);
-      mount(pl);
-      q("#all22-st").textContent =
-        pl.map(x => x.videoView).join(" + ") + " · " + row.old_game_id + "/" + row.play_id;
-    } catch (e) {
-      q("#all22-st").innerHTML = `<span style="color:#e0a86b">${esc(e.message || String(e))}</span>`;
+      while (wanted !== -1) {
+        const i = wanted; wanted = -1;
+        const row = lastRows[i];
+        if (!row) continue;
+        try {
+          const pl = await clipFor(row);
+          if (wanted !== -1) continue;        // superseded while loading; do not mount
+          mount(pl);
+          q("#all22-st").textContent =
+            pl.map(x => x.videoView).join(" + ") + " · " + row.old_game_id + "/" + row.play_id;
+        } catch (e) {
+          if (wanted !== -1 && !(e && e.api)) continue;
+          const dead = e && e.api && (e.status === 401 || e.status === 403);
+          q("#all22-st").innerHTML =
+            `<span style="color:${dead ? "#e0736b" : "#e0a86b"}">${esc(e.message || String(e))}</span>`;
+          if (dead) wanted = -1;              // nothing further will succeed this session
+        }
+      }
+    } finally {
+      fetching = false;
     }
   }
 

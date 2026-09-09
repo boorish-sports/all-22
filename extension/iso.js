@@ -5,6 +5,7 @@
  * everything privileged happens here and travels by postMessage.
  */
 const UUID_KEY = "gameUuids";
+const PREFS_KEY = "prefs";
 
 async function uuidMap() {
   return (await chrome.storage.local.get(UUID_KEY))[UUID_KEY] || {};
@@ -14,6 +15,17 @@ async function route(url, init) {
   const u = new URL(url, "http://x");
   const p = u.pathname;
   const qs = u.searchParams;
+
+  // UI preferences (first-run notice dismissal). Local only, never sent anywhere.
+  if (p === "/api/prefs") {
+    const cur = (await chrome.storage.local.get(PREFS_KEY))[PREFS_KEY] || {};
+    if (init && init.method === "POST") {
+      const next = Object.assign({}, cur, JSON.parse(init.body));
+      await chrome.storage.local.set({ [PREFS_KEY]: next });
+      return next;
+    }
+    return cur;
+  }
 
   // nflverse old_game_id -> NFL Pro fapiGameId, learned at runtime, kept locally
   if (p === "/api/game_uuid") {

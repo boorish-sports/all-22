@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>All-22 Film Search — Privacy policy</title>
+<style>
+:root{color-scheme:dark}
+body{margin:0;background:#121212;color:#e6e6e6;font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif}
+.w{max-width:680px;margin:0 auto;padding:40px 20px 60px}
+h1{font-size:14px;letter-spacing:.16em;text-transform:uppercase;color:#b1924f;margin:0 0 6px}
+h2{font-size:13px;letter-spacing:.12em;text-transform:uppercase;color:#b1924f;margin:30px 0 8px}
+a{color:#b1924f;text-decoration:none;border-bottom:1px dotted #b1924f80}
+code{background:#1e1e1e;border:1px solid #282828;border-radius:4px;padding:1px 6px;font-family:ui-monospace,Menlo,monospace;font-size:13px}
+.m{color:#adadad;font-size:13px}
+</style>
+<div class="w">
+  <h1>Privacy policy</h1>
+  <p class="m">All-22 Film Search, Chrome extension. Effective 2026-09-09.</p>
+
+  <p><strong>The short version: the extension collects nothing and sends nothing to its author.</strong>
+  There are no accounts, no analytics, no telemetry, no crash reporting, and no third-party services
+  other than the two it needs to function, described below.</p>
+
+  <h2>What is stored on your device</h2>
+  <ul>
+    <li><strong>The play index.</strong> A read-only SQLite database of public nflverse play-by-play data
+    (about 60 MB) is cached in the extension's IndexedDB so it is downloaded once, not every time.</li>
+    <li><strong>A game-ID map.</strong> When you open a clip, the extension learns which NFL Pro game
+    identifier corresponds to which nflverse game and keeps that mapping in
+    <code>chrome.storage.local</code> so it need not ask again.</li>
+    <li><strong>UI preferences.</strong> Whether you have dismissed the first-run notice, in
+    <code>chrome.storage.local</code>.</li>
+  </ul>
+  <p>Removing the extension deletes all of this. None of it leaves your browser.</p>
+
+  <h2>Network requests the extension makes</h2>
+  <ul>
+    <li><strong>GitHub</strong> (<code>github.com/boorish-sports/all-22-index</code> and GitHub's release-asset
+    hosts). To download the play index and, on later runs, to check whether a newer index exists. GitHub
+    sees this request the way it sees any download; the extension sends no identifying information.</li>
+    <li><strong>NFL Pro</strong> (<code>pro.nfl.com</code>). When you click a play, the extension asks NFL Pro
+    for that clip using the same requests NFL Pro's own film room makes, under your own logged-in
+    session. NFL therefore sees which clips you open, exactly as it would if you clicked them on the site.
+    The extension makes no NFL request that you did not initiate by selecting a play; it does not
+    prefetch, poll, or enumerate.</li>
+  </ul>
+
+  <h2>What the extension does not do</h2>
+  <ul>
+    <li>It does not collect, transmit, or sell personal information, browsing history, or search terms.</li>
+    <li>It does not download, copy, cache, or re-host video.</li>
+    <li>It does not read or store your NFL Pro credentials. It uses the page's own session.</li>
+    <li>It does not run on any site other than <code>pro.nfl.com</code>.</li>
+    <li>It does not load remote code. The index it downloads is data, verified against a SHA-256 checksum
+    before it is opened.</li>
+  </ul>
+
+  <h2>Permissions, in plain terms</h2>
+  <ul>
+    <li><code>storage</code> and <code>unlimitedStorage</code>: to keep the 60 MB index and the two small
+    settings above on your device.</li>
+    <li><code>offscreen</code>: to run the SQLite engine in a background document, which Chrome requires for
+    WebAssembly outside a page.</li>
+    <li>Host access to <code>pro.nfl.com</code>: to add the search panel to the film room and fetch the clips
+    you click. Host access to the GitHub hosts named above: to download the index.</li>
+  </ul>
+
+  <h2>Changes and contact</h2>
+  <p>If this policy changes, the new text is published at this address and the date at the top is updated.
+  Questions: open an issue at <a href="https://github.com/boorish-sports/all-22/issues">github.com/boorish-sports/all-22/issues</a>.</p>
+
+  <p class="m">All-22 Film Search is not affiliated with the National Football League, NFL Pro, nflverse, or FTN Data.</p>
+</div>
+</html>

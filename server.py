@@ -202,8 +202,11 @@ def base_filters(cols, qs):
         else:
             where.append('"%s" %s ?' % (col, OPS[op]))
             if cols[col] in ("REAL", "INTEGER"):
+                # a non-number against a numeric column matches nothing, as in
+                # db.js where Number("abc") is NaN and binds as NULL. It used
+                # to `continue` here, leaving the fragment without its value.
                 try: val = float(val)
-                except (TypeError, ValueError): continue
+                except (TypeError, ValueError): val = None
             args.append(val)
 
     for text in qs.get("q", []):
@@ -366,7 +369,14 @@ class H(BaseHTTPRequestHandler):
                     n = con.execute(sql, [pid] * len(ids) + exv + ra).fetchone()[0]
                     if n or key == "any":
                         out.append({"key": key, "label": label, "n": n})
-                return self._send(200, json.dumps(out))
+                # order by what this position actually does, and open on its
+                # default role -- the shape db.js returns and panel.js reads
+                default, promoted = roles_mod.position_profile(one.get("position"))
+                rank = lambda r: (promoted.index(r["key"]) if r["key"] in promoted else 99)
+                out.sort(key=rank)
+                if not any(r["key"] == default and r["n"] for r in out):
+                    default = "any"
+                return self._send(200, json.dumps({"default": default, "roles": out}))
             if u.path == "/api/player_subfilters":
                 pid = one.get("player", "")
                 role = one.get("role", "any")

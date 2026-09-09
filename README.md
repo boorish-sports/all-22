@@ -289,8 +289,12 @@ charting columns provided by FTN Data via nflverse; the field definitions in
 
 ## Tests
 
-    python3 tests/test_mirror.py
+    python3 tests/test_mirror.py      # the two-backend mirror rule
+    node tests/test_throttle.mjs      # the NFL request gate and selection coalescing
 
-Runs `server.py`/`roles.py` and `extension/db.js` over `data/plays.db` and diffs
-their output. Exits non-zero on any divergence. Build the index first
-(`python3 build_index.py 2025`).
+`test_mirror.py` runs `server.py`/`roles.py` and the shipped `extension/db.js`
+over `data/plays.db` and diffs every endpoint. Exits non-zero on any
+divergence. Build the index first (`python3 build_index.py 2025`).
+`test_throttle.mjs` cuts the request gate out of `panel.js` and checks that a
+burst of selections is serialised, spaced, coalesced, and that a 401/403 ends
+NFL traffic for the page.
