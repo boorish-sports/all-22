@@ -1,15 +1,26 @@
-# All-22 — fast film lookup for NFL Pro
+# All-22 Film Search
 
-Search nflverse play-by-play locally, then jump straight to that play on NFL Pro.
-No video is downloaded, copied, or re-hosted. Playback happens on pro.nfl.com in
-your own logged-in browser, under your own subscription.
+A Chrome extension that makes NFL Pro's film room searchable. Filter nflverse
+play-by-play (337 columns, including FTN charting) locally in your browser,
+click a play, and watch that clip in NFL Pro's own player, in a side panel on
+`pro.nfl.com`, under your own subscription.
 
-## Run
+**Requires an active NFL Pro subscription.** Without one it does nothing useful.
 
-```bash
-python3 build_index.py 2025      # once per season (downloads nflverse pbp)
-python3 server.py                # http://localhost:8722
-```
+**Unofficial, unaffiliated, and fragile.** It relies on undocumented NFL Pro
+endpoints that can change or disappear at any time, with no fix. No video is
+downloaded, cached, or re-hosted. Search is entirely local: the only requests
+the extension makes to NFL are one clip lookup per play you click.
+
+- Install and notes: see the landing page in `docs/` (published via GitHub Pages)
+- Licence: MIT for the code; data and definitions credits in [`NOTICE.md`](NOTICE.md)
+- Privacy: [`docs/privacy.html`](docs/privacy.html) — nothing is collected or sent anywhere
+
+---
+
+## Developer notes
+
+Everything below is for working on the code. Users do not need `server.py`.
 
 ## What was found
 
@@ -150,7 +161,7 @@ The panel sidesteps this by calling the video API directly.
 
 ## Filtering
 
-All **372** pbp columns are indexed and filterable — the same data
+All **337** pbp columns are indexed and filterable — the same data
 `nfl_data_py.import_pbp_data()` returns. Filters are `f=<column>:<op>[:<value>]`,
 repeatable and ANDed; ops are `eq ne gt gte lt lte like notnull isnull`.
 
@@ -266,3 +277,20 @@ as a mistake. A value that already carries a `%` is passed through untouched, so
 `/api/secured/*` is private, undocumented, and can change without warning. Keep
 usage to your own subscription and your own viewing; don't redistribute clips or
 share the endpoints as a service. Automated bulk calling risks your account.
+
+## Attribution and licences
+
+Code is MIT (see `LICENSE`). The index is derived from
+[nflverse-data](https://github.com/nflverse/nflverse-data) (CC BY 4.0), with
+charting columns provided by FTN Data via nflverse; the field definitions in
+`extension/dictionary.json` are from [nflreadr](https://github.com/nflverse/nflreadr)
+(MIT). Full notices, including the nflreadr copyright text, are in
+[`NOTICE.md`](NOTICE.md).
+
+## Tests
+
+    python3 tests/test_mirror.py
+
+Runs `server.py`/`roles.py` and `extension/db.js` over `data/plays.db` and diffs
+their output. Exits non-zero on any divergence. Build the index first
+(`python3 build_index.py 2025`).
