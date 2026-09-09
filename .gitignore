@@ -1,0 +1,10 @@
+# nflverse downloads and the built index: 112 MB, distributed via the
+# boorish-sports/all-22-index releases, never committed here.
+data/
+
+__pycache__/
+*.pyc
+.DS_Store
+
+# packaged extension zips (build_zip.sh)
+dist/

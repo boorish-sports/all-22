@@ -1,0 +1,39 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>All-22 backend</title>
+<style>
+body{margin:0;background:#0d0f14;color:#e8ecf3;font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:40px}
+.w{max-width:640px;margin:0 auto}
+h1{font-size:14px;letter-spacing:.14em;text-transform:uppercase;color:#d8b46a;margin:0 0 6px}
+.m{color:#8b95a7;font-size:13px}
+ol{padding-left:20px}li{margin:9px 0}
+code{background:#161a22;border:1px solid #262c38;border-radius:4px;padding:2px 6px;font-family:ui-monospace,Menlo,monospace;font-size:12px}
+.box{background:#161a22;border:1px solid #262c38;border-radius:7px;padding:16px 20px;margin:22px 0}
+.ok{color:#5cc98a}
+</style>
+<div class="w">
+  <h1>All-22 — search backend</h1>
+  <p class="m" id="meta">checking…</p>
+
+  <div class="box">
+    <strong>The search UI lives on pro.nfl.com, not here.</strong>
+    <p class="m">NFL's clips are Widevine/FairPlay DRM played through a domain-locked
+    THEOplayer licence, so they can only decrypt on nfl.com. The panel goes to the
+    video rather than the other way round — one tab, NFL's own player, your own
+    subscription.</p>
+  </div>
+
+  <ol>
+    <li>Load the extension: <code>chrome://extensions</code> → Developer mode → Load unpacked → <code>extension/</code></li>
+    <li>Open <a href="https://pro.nfl.com/film/plays" target="_blank">pro.nfl.com/film/plays</a> and click the gold <strong>ALL-22</strong> tab on the right.</li>
+    <li>Filter on any of the 372 pbp columns, click a play, watch it inline.</li>
+  </ol>
+  <p class="m">This page only serves the API: <code>/api/search</code>, <code>/api/columns</code>,
+  <code>/api/meta</code>, <code>/api/game_uuid</code>.</p>
+</div>
+<script>
+fetch('/api/meta').then(r=>r.json()).then(m=>{
+  document.getElementById('meta').innerHTML =
+    `<span class="ok">running</span> · ${m.count.toLocaleString()} plays · ${m.columns} columns · seasons ${m.seasons.join(', ')}`;
+}).catch(()=>{document.getElementById('meta').textContent='backend not responding';});
+</script>

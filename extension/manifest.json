@@ -1,0 +1,56 @@
+{
+  "manifest_version": 3,
+  "name": "All-22 Film Search",
+  "version": "3.0",
+  "description": "Search nflverse play-by-play and watch the matching All-22 clip inline on NFL Pro.",
+  "permissions": [
+    "storage",
+    "unlimitedStorage",
+    "offscreen"
+  ],
+  "host_permissions": [
+    "https://pro.nfl.com/*",
+    "https://github.com/*",
+    "https://objects.githubusercontent.com/*",
+    "https://release-assets.githubusercontent.com/*",
+    "http://localhost:8722/*"
+  ],
+  "background": {
+    "service_worker": "sw.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://pro.nfl.com/*"
+      ],
+      "js": [
+        "iso.js"
+      ],
+      "run_at": "document_start",
+      "world": "ISOLATED"
+    },
+    {
+      "matches": [
+        "https://pro.nfl.com/*"
+      ],
+      "js": [
+        "panel.js"
+      ],
+      "run_at": "document_idle",
+      "world": "MAIN"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "vendor/sqlite/*"
+      ],
+      "matches": [
+        "https://pro.nfl.com/*"
+      ]
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+  }
+}
