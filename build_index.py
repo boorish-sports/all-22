@@ -56,10 +56,6 @@ def load_ftn(season):
     print("  FTN %d: %d charted plays" % (season, len(out)))
     return out
 
-# numeric columns get REAL affinity so range filters (epa > 1.5) sort correctly
-NUMERIC_HINT = ("epa", "wp", "wpa", "yards", "yardline", "prob", "cpoe", "air",
-                "score", "time", "spread", "total", "seconds",
-                "count", "ydstogo", "down", "qtr", "week", "temp", "wind")
 # identifiers must stay exact -- never floats, or 2025090400 becomes 2025090400.0
 FORCE_INT = {"play_id", "season", "week", "qtr", "down"}
 FORCE_TEXT = {"game_id", "old_game_id", "nfl_api_id"}
@@ -92,19 +88,32 @@ def fetch(url, path):
             f.write(b)
 
 
-def is_num(col, samples):
+def column_type(col, samples):
+    """INTEGER / REAL / TEXT, from what the column actually holds.
+
+    This used to also require the column NAME to contain one of twenty
+    substrings ("epa", "prob", "yards", ...). Anything else was TEXT however
+    numeric its values, which is how cp, ep, xpass, pass_oe and the whole
+    xyac_* family ended up as text: `cp <= 0.6` became a string comparison and
+    the panel refused the filter outright. What a column holds is the only
+    thing that can answer this. Identifiers are the exception and are named.
+    """
     if col in FORCE_TEXT or col.endswith("_id"):
-        return False
+        return "TEXT"
     vals = [v for v in samples if v not in ("", "NA", None)]
     if not vals:
-        return False
-    if not any(h in col for h in NUMERIC_HINT):
-        return False
-    ok = 0
+        return "TEXT"
+    ok = whole = 0
     for v in vals:
-        try: float(v); ok += 1
-        except ValueError: pass
-    return ok / len(vals) > 0.9
+        try: f = float(v)
+        except ValueError: continue
+        ok += 1
+        whole += f.is_integer()
+    if ok / len(vals) <= 0.9:
+        return "TEXT"
+    # an integral column stays integral: a jersey number or a drive number
+    # offered as 12.0 in a filter box is worse than useless
+    return "INTEGER" if whole == ok else "REAL"
 
 
 def main(seasons, full=False):
@@ -120,7 +129,10 @@ def main(seasons, full=False):
     with gzip.open(paths[0], "rt", newline="", encoding="utf-8", errors="replace") as f:
         rd = csv.reader(f)
         raw_header = next(rd)
-        sample = [row for _, row in zip(range(400), rd)]
+        # typing is decided from these rows, so read enough of them that a
+        # column which is whole-numbered early but fractional later is not
+        # mistaken for an integer one
+        sample = [row for _, row in zip(range(20000), rd)]
     keep_idx = [i for i, c in enumerate(raw_header) if full or not SKIP.search(c)]
     header = [raw_header[i] for i in keep_idx] + FTN_COLS
     if not full:
@@ -133,8 +145,11 @@ def main(seasons, full=False):
         if col in FORCE_INT:
             types[col] = "INTEGER"
         else:
-            types[col] = "REAL" if is_num(col, [r[src_i] for r in sample if src_i < len(r)]) else "TEXT"
-    print("  columns: %d (%d numeric)" % (len(header), sum(v == "REAL" for v in types.values())))
+            types[col] = column_type(col, [r[src_i] for r in sample if src_i < len(r)])
+    print("  columns: %d (%d real, %d integer, %d text)"
+          % (len(header), sum(v == "REAL" for v in types.values()),
+             sum(v == "INTEGER" for v in types.values()),
+             sum(v == "TEXT" for v in types.values())))
 
     con = sqlite3.connect(DB)
     con.execute("PRAGMA journal_mode=OFF"); con.execute("PRAGMA synchronous=OFF")
@@ -191,7 +206,12 @@ def main(seasons, full=False):
                     if v is None or v in ("", "NA"):
                         out.append(None)
                     elif i in intidx:
-                        try: out.append(int(float(v)))
+                        # INTEGER affinity is a hint, not a promise: if a
+                        # fractional value turns up in a column the sample said
+                        # was whole, keep it rather than truncating it
+                        try:
+                            f = float(v)
+                            out.append(int(f) if f.is_integer() else f)
                         except ValueError: out.append(None)
                     elif i in numidx:
                         try: out.append(float(v))
@@ -257,6 +277,13 @@ def publish(seasons):
     # survives runner-image updates that would otherwise force a pointless
     # 15 MB re-download for every consumer.
     src = hashlib.sha256()
+    # the artifact is a function of the sources AND of this script: retyping a
+    # column changes every consumer's index while leaving nflverse's files
+    # untouched, and without this the scheduled build would report "unchanged"
+    # and never publish the fix
+    with open(os.path.abspath(__file__), "rb") as f:
+        src.update(b"build_index.py")
+        src.update(f.read())
     for path in sorted(p for p in SOURCES if os.path.exists(p)):
         src.update(os.path.basename(path).encode())
         with open(path, "rb") as f:

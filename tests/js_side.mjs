@@ -57,7 +57,8 @@ m.__setDb(db);
 // iso.js's payload shaping, reproduced so the case list can be plain query strings
 function payloadFor(op, qs) {
   const u = new URLSearchParams(qs);
-  return (op === "search" || op === "player_subfilters" || op === "player_roles")
+  return (op === "search" || op === "player_subfilters" ||
+          op === "player_roles" || op === "values")
     ? Object.assign(Object.fromEntries(u.entries()),
                     { f: u.getAll("f"), q: u.getAll("q"), sub: u.getAll("sub"), nsub: u.getAll("nsub") })
     : Object.fromEntries(u.entries());

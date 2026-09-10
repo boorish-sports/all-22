@@ -51,7 +51,24 @@ def describe():
 LIST_MAX = 25
 
 
-def profile(con, col, cols, members=None):
+_SHAPE = {}
+
+
+def shape_distinct(con, col, arms):
+    """Whether a column reads as a short enumeration or as a range is a property
+    of the column, not of whatever you have filtered down to. Deciding it from
+    the filtered rows would morph the control as you narrow: air_epa is a range
+    over a season and would turn into a list of six raw floats the moment you
+    pick one receiver. Cached per column -- this is the scan profile() used to
+    do before it learned to scope. Mirrors db.js."""
+    if col not in _SHAPE:
+        union = " UNION ALL ".join('SELECT "%s" v FROM plays' % m for m in arms)
+        _SHAPE[col] = con.execute(
+            "SELECT COUNT(DISTINCT v) FROM (%s)" % union).fetchone()[0]
+    return _SHAPE[col]
+
+
+def profile(con, col, cols, members=None, scope=None):
     """What a column actually holds -> {kind, filled, distinct, ...}.
 
     The shape depends on the column: a yes/no gets its two counts, a short
@@ -64,9 +81,14 @@ def profile(con, col, cols, members=None):
     # type, and without this it falls through to the numeric branch
     coltype = cols.get(col) or (cols.get(members[0]) if members else None)
     src = members or [col]
-    union = " UNION ALL ".join('SELECT "%s" v FROM plays' % m for m in src)
+    where, args = scope or ([], [])
+    tail = (" WHERE " + " AND ".join(where)) if where else ""
+    union = " UNION ALL ".join('SELECT "%s" v FROM plays%s' % (m, tail) for m in src)
+    # every arm of the union carries the same WHERE, so it wants its own copy
+    # of the arguments
+    sa = list(args) * len(src)
     filled, distinct = con.execute(
-        "SELECT COUNT(v), COUNT(DISTINCT v) FROM (%s)" % union).fetchone()
+        "SELECT COUNT(v), COUNT(DISTINCT v) FROM (%s)" % union, sa).fetchone()
     # a merged column is ours, not nflverse's, so it has no dictionary entry of
     # its own: borrow the one for the slot it leads with. That it spans several
     # columns is plumbing -- the panel shows it on the badge, not in the wording.
@@ -78,24 +100,25 @@ def profile(con, col, cols, members=None):
         out["kind"] = "empty"
         return out
     if col in binary_columns(con, cols):
-        yes = con.execute("SELECT COUNT(*) FROM (%s) WHERE v IN ('1',1)" % union).fetchone()[0]
+        yes = con.execute(
+            "SELECT COUNT(*) FROM (%s) WHERE v IN ('1',1)" % union, sa).fetchone()[0]
         out.update(kind="yesno", yes=yes, no=filled - yes)
         return out
-    if distinct <= LIST_MAX:
+    if shape_distinct(con, col, src) <= LIST_MAX:
         out.update(kind="list", values=[
             {"v": r[0], "n": r[1]} for r in con.execute(
                 "SELECT v, COUNT(*) n FROM (%s) WHERE v IS NOT NULL "
-                "GROUP BY 1 ORDER BY n DESC" % union)])
+                "GROUP BY 1 ORDER BY n DESC" % union, sa)])
         return out
     if coltype in ("REAL", "INTEGER"):
         lo, hi, avg = con.execute(
-            "SELECT MIN(v), MAX(v), AVG(v) FROM (%s)" % union).fetchone()
+            "SELECT MIN(v), MAX(v), AVG(v) FROM (%s)" % union, sa).fetchone()
         out.update(kind="number", min=lo, max=hi, avg=avg)
         return out
     out.update(kind="text", values=[
         {"v": r[0], "n": r[1]} for r in con.execute(
             "SELECT v, COUNT(*) n FROM (%s) WHERE v IS NOT NULL "
-            "GROUP BY 1 ORDER BY n DESC LIMIT 4" % union)])
+            "GROUP BY 1 ORDER BY n DESC LIMIT 4" % union, sa)])
     return out
 
 
@@ -217,7 +240,14 @@ def base_filters(cols, qs):
     return where, args
 
 
-def search(con, qs):
+def scope_filters(con, qs):
+    """Everything that narrows the play list: the base filters, the facet
+    selection and the player's own participation columns. profile() needs the
+    very same scope -- without it the dictionary describes the whole index
+    while the list under it shows one player's afternoon. Mirrors db.js.
+
+    Fragments come back unqualified, which resolves against `FROM plays` and
+    against `FROM plays p` alike."""
     cols = schema(con)
     role = (qs.get("role") or ["any"])[0]
     subs = qs.get("sub", [])
@@ -226,7 +256,7 @@ def search(con, qs):
     if qs.get("player"):
         ids = roles_mod.role_columns(role, cols)
         if ids:
-            where.append("(" + " OR ".join('p."%s" = ?' % c for c in ids) + ")")
+            where.append("(" + " OR ".join('"%s" = ?' % c for c in ids) + ")")
             args.extend([qs["player"][0]] * len(ids))
 
     for key in qs.get("nsub", []):
@@ -244,9 +274,14 @@ def search(con, qs):
         if col not in cols:
             continue
         frag, v = roles_mod.sql_condition(col, op, val, cols[col])
-        where.append(frag.replace('"%s"' % col, 'p."%s"' % col))
+        where.append(frag)
         args.append(v)
 
+    return where, args
+
+
+def search(con, qs):
+    where, args = scope_filters(con, qs)
     sql = "SELECT %s FROM plays p" % ",".join('p."%s"' % c for c in CORE)
     if where:
         sql += " WHERE " + " AND ".join(where)
@@ -326,12 +361,15 @@ class H(BaseHTTPRequestHandler):
                 want = [x for x in (one.get("cols", "").split(",") if one.get("cols")
                                     else [one.get("col", "")]) if x]
                 want = want[:40]          # one screenful of dictionary rows
+                # the same scope the play list is under, so the range and the
+                # counts describe the selection you are looking at
+                scope = scope_filters(con, qs)
                 out = {}
                 for col in want:
                     g = gs.get(col)
                     if not g and col not in cs:
                         continue
-                    out[col] = profile(con, col, cs, g["members"] if g else None)
+                    out[col] = profile(con, col, cs, g["members"] if g else None, scope)
                 if one.get("cols"):
                     return self._send(200, json.dumps({"profiles": out}))
                 if not out:

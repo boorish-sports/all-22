@@ -476,7 +476,11 @@ function baseFilters(q) {
   return [where, args];
 }
 
-function search(q) {
+/* Everything that narrows the play list: the base filters, the facet selection
+   and the player's own participation columns. profile() needs the very same
+   scope -- without it the dictionary describes the whole index while the list
+   under it shows one player's afternoon. */
+function scopeFilters(q) {
   const c = cols();
   const [where, args] = baseFilters(q);
   // A player id may appear in any of ~43 participant columns (passer, rusher,
@@ -511,6 +515,11 @@ function search(q) {
       ids.forEach(() => args.push(q.player));
     }
   }
+  return [where, args];
+}
+
+function search(q) {
+  const [where, args] = scopeFilters(q);
   let sql = "SELECT " + CORE.map(x => `"${x}"`).join(",") + " FROM plays";
   if (where.length) sql += " WHERE " + where.join(" AND ");
   sql += { epa: " ORDER BY epa DESC", epa_asc: " ORDER BY epa ASC" }[q.order]
@@ -536,19 +545,41 @@ async function describe() {
 // A column's values are only worth listing when there are few enough to read.
 const LIST_MAX = 25;
 
+/* Whether a column reads as a short enumeration or as a range is a property of
+   the column, not of whatever you have filtered down to. Deciding it from the
+   filtered rows would morph the control as you narrow: air_epa is a range over
+   a season and would turn into a list of six raw floats the moment you pick one
+   receiver. Cached per column -- this is the scan profile() used to do before
+   it learned to scope. Mirrors server.py. */
+const _shape = new Map();
+function shapeDistinct(col, arms) {
+  if (_shape.has(col)) return _shape.get(col);
+  const src = arms.map(m => `SELECT "${m}" v FROM plays`).join(" UNION ALL ");
+  const n = db.selectArrays(`SELECT COUNT(DISTINCT v) FROM (${src})`)[0][0];
+  _shape.set(col, n);
+  return n;
+}
+
 /* What a column actually holds. The shape depends on the column: a yes/no gets
    its two counts, a short enumeration gets its values, a number gets its range,
    free text gets a sample plus a distinct count. One size genuinely does not
    fit -- epa's five most common values are noise, pass_location's are the whole
    vocabulary. Mirrors server.py. */
-async function profile(col, members) {
+async function profile(col, members, scope) {
   // a merged column has no schema entry of its own; its type is its slots' type,
   // and without this it falls through to the numeric branch and blows up on a
   // player name
   const coltype = cols()[col] || (members ? cols()[members[0]] : null);
-  const src = (members || [col]).map(m => `SELECT "${m}" v FROM plays`).join(" UNION ALL ");
+  const arms = members || [col];
+  const [w, a] = scope || [[], []];
+  const tail = w.length ? " WHERE " + w.join(" AND ") : "";
+  const src = arms.map(m => `SELECT "${m}" v FROM plays${tail}`).join(" UNION ALL ");
+  // every arm of the union carries the same WHERE, so it wants its own copy
+  // of the arguments
+  const sa = [];
+  arms.forEach(() => sa.push(...a));
   const [filled, distinct] =
-    db.selectArrays(`SELECT COUNT(v), COUNT(DISTINCT v) FROM (${src})`)[0];
+    db.selectArrays(`SELECT COUNT(v), COUNT(DISTINCT v) FROM (${src})`, sa)[0];
   const dict = await describe();
   // a merged column is ours, not nflverse's, so it has no dictionary entry of its
   // own: borrow the one for the slot it leads with. That it spans several columns
@@ -558,20 +589,20 @@ async function profile(col, members) {
   const out = { col, filled, distinct, desc: d };
   if (!filled) { out.kind = "empty"; return out; }
   if (binaryColumns().includes(col)) {
-    const yes = db.selectArrays(`SELECT COUNT(*) FROM (${src}) WHERE v IN ('1',1)`)[0][0];
+    const yes = db.selectArrays(`SELECT COUNT(*) FROM (${src}) WHERE v IN ('1',1)`, sa)[0][0];
     return Object.assign(out, { kind: "yesno", yes, no: filled - yes });
   }
-  if (distinct <= LIST_MAX) {
+  if (shapeDistinct(col, arms) <= LIST_MAX) {
     return Object.assign(out, { kind: "list", values: db.selectObjects(
-      `SELECT v, COUNT(*) n FROM (${src}) WHERE v IS NOT NULL GROUP BY 1 ORDER BY n DESC`) });
+      `SELECT v, COUNT(*) n FROM (${src}) WHERE v IS NOT NULL GROUP BY 1 ORDER BY n DESC`, sa) });
   }
   if (coltype === "REAL" || coltype === "INTEGER") {
     const [min, max, avg] = db.selectArrays(
-      `SELECT MIN(v), MAX(v), AVG(v) FROM (${src})`)[0];
+      `SELECT MIN(v), MAX(v), AVG(v) FROM (${src})`, sa)[0];
     return Object.assign(out, { kind: "number", min, max, avg });
   }
   return Object.assign(out, { kind: "text", values: db.selectObjects(
-    `SELECT v, COUNT(*) n FROM (${src}) WHERE v IS NOT NULL GROUP BY 1 ORDER BY n DESC LIMIT 4`) });
+    `SELECT v, COUNT(*) n FROM (${src}) WHERE v IS NOT NULL GROUP BY 1 ORDER BY n DESC LIMIT 4`, sa) });
 }
 
 /* ---------- message API ---------- */
@@ -600,11 +631,14 @@ async function handle(op, payload) {
     const c = cols(), gs = groups();
     const want = (payload.cols ? String(payload.cols).split(",") : [payload.col])
       .filter(Boolean).slice(0, 40);      // one screenful of dictionary rows
+    // the same scope the play list is under, so the range and the counts
+    // describe the selection you are looking at rather than the whole index
+    const scope = scopeFilters(payload);
     const out = {};
     for (const col of want) {
       const g = gs[col];
       if (!g && !(col in c)) continue;
-      out[col] = await profile(col, g ? g.members : null);
+      out[col] = await profile(col, g ? g.members : null, scope);
     }
     if (payload.cols) return { profiles: out };
     const first = Object.values(out)[0];

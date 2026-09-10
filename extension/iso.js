@@ -48,7 +48,8 @@ async function route(url, init) {
 
   // Object.fromEntries keeps only the LAST value of a repeated key, which would
   // silently drop every facet but one. Repeatable params must use getAll.
-  const payload = (op === "search" || op === "player_subfilters" || op === "player_roles")
+  const payload = (op === "search" || op === "player_subfilters" ||
+                   op === "player_roles" || op === "values")
     ? Object.assign(Object.fromEntries(qs.entries()),
                     { f: qs.getAll("f"), q: qs.getAll("q"),
                       sub: qs.getAll("sub"), nsub: qs.getAll("nsub") })

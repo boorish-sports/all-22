@@ -1247,14 +1247,40 @@
      spinner for a reference you are going to scroll a screenful of. */
   const PROF = new Map();          // col -> profile, once fetched
   let dictObs = null, dictQueue = new Set(), dictTimer = null;
+  // A profile is only true of the scope it was read under, so the cache is
+  // dropped whenever that scope moves -- otherwise picking a player leaves
+  // every row still quoting the whole index.
+  let profScope = null;
+  function profReset(scope) {
+    if (scope === profScope) return;
+    profScope = scope;
+    PROF.clear();
+    dictQueue.clear();
+    const list = q("#a-dlist");
+    if (!list) return;           // run() can fire before the dictionary exists
+    list.querySelectorAll(".dent").forEach(el => {
+      el.querySelector(".dval").innerHTML = '<span class="dn">…</span>';
+    });
+    // Re-observing makes the observer report whatever is on screen right now,
+    // so only those rows are profiled again. Requeuing all 275 here would cost
+    // the four seconds of scans the lazy load exists to avoid -- and would pay
+    // it again on every filter change.
+    if (dictObs) {
+      dictObs.disconnect();
+      list.querySelectorAll(".dent").forEach(el => dictObs.observe(el));
+    }
+  }
 
   function dictFlush() {
     clearTimeout(dictTimer);
     dictTimer = setTimeout(() => {
+      const scope = scopeParams().toString();
+      profReset(scope);
       const want = [...dictQueue].filter(c => !PROF.has(c)).slice(0, 40);
       dictQueue.clear();
       if (!want.length) return;
-      backend("/api/values?cols=" + want.map(encodeURIComponent).join(",")).then(r => {
+      backend("/api/values?" + scope + "&cols=" + want.map(encodeURIComponent).join(",")).then(r => {
+        if (scope !== profScope) return;      // the scope moved while we waited
         Object.entries(r.profiles || {}).forEach(([k, v]) => PROF.set(k, v));
         want.forEach(paintDictRow);
       }).catch(() => {});
@@ -1465,7 +1491,7 @@
      shows its range, free text shows a sample and how much else there is.
      Values carry data-v so they can be clicked into the filter box. */
   function profileHtml(d) {
-    if (!d || d.kind === "empty") return '<span class="dn">no values in this index</span>';
+    if (!d || d.kind === "empty") return '<span class="dn">no values in this selection</span>';
     const val = x => `<b data-v="${esc(String(x.v))}">${esc(String(x.v))}</b>` +
                      `<span class="dn"> ${nfmt(x.n)}</span>`;
     if (d.kind === "yesno")
@@ -1500,7 +1526,8 @@
     const desc = DESCRIBE[col] ? ` <span class="dn">— ${esc(oneLine(DESCRIBE[col]))}</span>` : "";
     h.innerHTML = `<span class="m">${name}${desc} · loading…</span>`;
     try {
-      const d = await backend(`/api/values?col=${encodeURIComponent(col)}`);
+      const d = await backend(
+        `/api/values?${scopeParams()}&col=${encodeURIComponent(col)}`);
       h.innerHTML = `<span class="m">${name}${
         d.desc ? ` <span class="dn">— ${esc(oneLine(d.desc))}</span>` : desc} · </span>` +
         `<span class="dval">${profileHtml(d)}</span>`;
@@ -1640,7 +1667,10 @@
     return u;
   }
 
-  function run() {
+  // contextParams plus the player and facet selection: the full scope the play
+  // list is under. A column profile asks for the same one, so the range it
+  // reports is the range of what you are looking at.
+  function scopeParams() {
     const u = contextParams();
     if (picked) {
       u.set("player", picked.gsis_id);
@@ -1649,6 +1679,12 @@
       Object.values(facets).forEach(k => u.append("sub", k));
       excl.forEach(k => u.append("nsub", k));
     }
+    return u;
+  }
+
+  function run() {
+    const u = scopeParams();
+    dictFlush();                 // the dictionary, if open, describes the new scope
     u.set("order", q("#a-order").value);
     u.set("limit", "300");
 

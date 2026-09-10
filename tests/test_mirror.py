@@ -33,6 +33,7 @@ def build_cases(con):
         (pos,)).fetchone()[0]
     qb, rb, de, lb, wr = pick("QB"), pick("RB"), pick("DE"), pick("LB"), pick("WR")
     cols = [r[1] for r in con.execute("PRAGMA table_info(plays)")]
+    season = con.execute("SELECT MAX(season) FROM plays").fetchone()[0]
     gkeys = [g["key"] for g in roles.column_groups(
         {r[1]: r[2] for r in con.execute("PRAGMA table_info(plays)")})]
 
@@ -52,6 +53,23 @@ def build_cases(con):
         op("values_%d" % (i // 40), "values", "cols=" + ",".join(sample[i:i + 40]))
     op("values_one", "values", "col=@sack_player_name")
     op("values_bad", "values", "col=no_such_column")
+
+    # a profile is read under the same scope as the play list, so the range it
+    # reports describes the selection. The shape (list vs number) must NOT move
+    # with the scope: air_epa narrowed to one QB's deep throws is a handful of
+    # distinct floats, and rendering those as a clickable value list would be a
+    # different control than the range the same column shows unfiltered.
+    op("values_scoped_season", "values", "col=air_epa&f=season:eq:%s" % season)
+    op("values_scoped_player", "values",
+       "col=air_epa&player=%s&role=passer&f=season:eq:%s" % (qb, season))
+    op("values_scoped_narrow", "values",
+       "col=air_epa&player=%s&role=passer&sub=deep&f=season:eq:%s" % (qb, season))
+    op("values_scoped_empty", "values", "col=epa&f=season:eq:1999")
+    op("values_scoped_group", "values",
+       "col=@sack_player_name&f=season:eq:%s" % season)
+    op("values_scoped_many", "values",
+       "cols=epa,air_epa,down,qtr,pass_length,desc,wind&player=%s&role=passer" % qb)
+    op("values_scoped_text", "values", "col=desc&f=posteam:eq:SEA&q=touchdown")
 
     # searches. limit=1000 everywhere: two SQLite builds may break ORDER BY ties
     # differently, and a LIMIT that cuts through a tie would look like a diff.
