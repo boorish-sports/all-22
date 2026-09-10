@@ -273,6 +273,13 @@
 
   /* ---------------- player ---------------- */
   let root = null, curList = [], curIdx = 0, syncTimer = null, vpCache = null;
+  /* Playback rate is sticky across clips: film study is a rate you settle on,
+     not one you re-pick every play. It rides on the raw <video> element, which
+     NFL's player recreates per clip, so it is re-applied once per new element
+     (see applyRate) rather than every sync tick -- polling it back would fight
+     the player's own rate menu the moment you used it. */
+  const RATES = [0.5, 1, 2];
+  let rate = 1, ratedEl = null, autoNext = false, menuOpen = false;
 
   // Find NFL's player instance by walking the React fiber off the mounted node.
   // Breadth-first: the instance is not on the first-child chain, and a passed
@@ -301,12 +308,82 @@
   function drawAngles() {
     const bar = document.getElementById("all22-ang");
     if (!curList.length) { bar.innerHTML = ""; return; }
+    /* The angles sit left. Opposite them: step-through as two bare chevrons,
+       because moving between plays is the thing you do most and it should cost
+       one glance; everything you set once and leave alone -- speed, whether a
+       clip rolls into the next -- goes behind the gear rather than crowding
+       the bar with five buttons. */
+    const prev = selIdx > 0;
+    const more = selIdx >= 0 && selIdx + 1 < lastRows.length;
     bar.innerHTML = curList.map((c, i) =>
       `<button class="${i === curIdx ? "on" : ""}" data-i="${i}">${esc(c.videoView)}</button>`).join("") +
+      '<span class="pgrp">' +
+        `<button class="ico" data-prev="1"${prev ? "" : " disabled"}` +
+        ` title="Previous play (p)" aria-label="Previous play">\u2039</button>` +
+        `<button class="ico" data-next="1"${more ? "" : " disabled"}` +
+        ` title="Next play (n)" aria-label="Next play">\u203a</button>` +
+        `<button class="ico gear${autoNext ? " act" : ""}" data-gear="1"` +
+        ` title="Playback settings" aria-label="Playback settings"` +
+        ` aria-expanded="${menuOpen}">\u2699\ufe0e</button>` +
+        `<div id="all22-pop"${menuOpen ? "" : " hidden"}>
+           <div class="prow"><span class="plab">Speed</span><span class="seg">` +
+             RATES.map(r => `<button class="${r === rate ? "on" : ""}" data-r="${r}">${r}\u00d7</button>`).join("") +
+           `</span></div>
+           <div class="prow"><span class="plab">Auto-play next</span>
+             <button class="tg${autoNext ? " on" : ""}" data-auto="1">${autoNext ? "On" : "Off"}</button>
+           </div>
+           <div class="pnote">Ends a clip on the last angle, then loads the next play.</div>
+         </div>` +
+      '</span>' +
       '<span class="khint" title="Keyboard shortcuts">? Keys · \u2190 \u2192 Frame step</span>';
-    bar.querySelectorAll("button").forEach(b => b.onclick = () => setAngle(+b.dataset.i));
+    bar.querySelectorAll("button[data-i]").forEach(b =>
+      b.onclick = () => setAngle(+b.dataset.i));
+    bar.querySelectorAll("button[data-r]").forEach(b =>
+      b.onclick = () => setRateAbs(+b.dataset.r));
+    const auto = bar.querySelector("button[data-auto]");
+    if (auto) auto.onclick = () => setAutoNext(!autoNext);
+    const nx = bar.querySelector("button[data-next]");
+    if (nx) nx.onclick = () => nextPlay();
+    const pv = bar.querySelector("button[data-prev]");
+    if (pv) pv.onclick = () => prevPlay();
+    const gear = bar.querySelector("button[data-gear]");
+    if (gear) gear.onclick = e => { e.stopPropagation(); setMenu(!menuOpen); };
     const kh = bar.querySelector(".khint");
     if (kh) kh.onclick = () => toggleHelp();
+  }
+
+  /* The bar is redrawn whenever the angle, rate or toggle changes, which would
+     otherwise slam the menu shut under the click that just opened it. */
+  function setMenu(on) {
+    menuOpen = !!on;
+    const pop = document.getElementById("all22-pop");
+    const gear = document.querySelector("#all22-ang .gear");
+    if (pop) pop.hidden = !menuOpen;
+    if (gear) gear.setAttribute("aria-expanded", String(menuOpen));
+  }
+
+  function nextPlay() {
+    if (selIdx + 1 < lastRows.length) selectPlay(selIdx + 1);
+  }
+
+  function prevPlay() {
+    if (selIdx > 0) selectPlay(selIdx - 1);
+  }
+
+  function setAutoNext(on) {
+    autoNext = !!on;
+    drawAngles();
+    flash(autoNext ? "auto-play next: on" : "auto-play next: off");
+    post("/api/prefs", { autoNext }).catch(() => {});
+  }
+
+  /* One rate per new <video>. Re-applying on every tick would overwrite a rate
+     the viewer had just chosen from NFL's own control. */
+  function applyRate() {
+    const v = vid();
+    if (!v || v === ratedEl) return;
+    ratedEl = v;
+    try { v.playbackRate = rate; } catch {}
   }
 
   function setAngle(i) {
@@ -402,6 +479,7 @@
     syncTimer = setInterval(() => {
       const host = document.getElementById("all22-video");
       if (!host || !host.firstChild) { clearInterval(syncTimer); return; }
+      applyRate();
       const i = currentAngleIndex();
       if (i != null && i !== curIdx) { curIdx = i; drawAngles(); }
     }, 400);
@@ -554,12 +632,18 @@
     flash((sec > 0 ? "+" : "") + sec + "s");
   }
 
-  function setRate(mult) {
+  function setRateAbs(r) {
+    rate = Math.min(4, Math.max(0.1, +(+r).toFixed(2)));
     const v = vid();
-    if (!v) return;
-    v.playbackRate = Math.min(4, Math.max(0.1, +(v.playbackRate * mult).toFixed(2)));
-    flash(v.playbackRate + "×");
+    if (v) { try { v.playbackRate = rate; } catch {} ratedEl = v; }
+    flash(rate + "×");
+    drawAngles();
+    post("/api/prefs", { rate }).catch(() => {});
   }
+
+  // [ and ] nudge from wherever the rate is now, so the keys and the buttons
+  // are two views of one value
+  function setRate(mult) { setRateAbs(rate * mult); }
 
   let flashTimer = null;
   function flash(txt) {
@@ -607,6 +691,11 @@
 
   function keyHandler(e) {
     if (p.classList.contains("hid")) return;
+    if (e.key === "Escape" && menuOpen) {
+      setMenu(false);
+      e.preventDefault();
+      return;
+    }
     if (e.key === "Escape" && !document.getElementById("a-dict").hidden) {
       showDict(false);
       e.preventDefault();
@@ -637,8 +726,8 @@
         break;
       case "1": setBare(false); setAngle(0); break;
       case "2": setBare(false); setAngle(1); break;
-      case "n": if (selIdx + 1 < lastRows.length) selectPlay(selIdx + 1); break;
-      case "p": if (selIdx > 0) selectPlay(selIdx - 1); break;
+      case "n": nextPlay(); break;
+      case "p": prevPlay(); break;
       case "[": setRate(1 / 1.25); break;
       case "]": setRate(1.25); break;
       case "m": if (v) { v.muted = !v.muted; flash(v.muted ? "muted" : "unmuted"); } break;
@@ -658,6 +747,7 @@
   }
   // capture phase so the page cannot swallow the key first
   window.addEventListener("keydown", keyHandler, true);
+
   // A click on the picture brings the controls back. Deliberately NOT mousemove:
   // the mouse sits idle over the video while you work the keyboard, and the
   // slightest drift was cancelling bare mode instantly.
@@ -848,7 +938,32 @@
     text-transform:uppercase;margin-bottom:8px}
   #a-help div{display:flex;gap:12px;padding:2px 0}
   #a-help kbd{min-width:82px;color:#adadad;font-family:ui-monospace,Menlo,monospace;font-size:11px}
-  #all22-ang .khint{margin-left:auto;color:#a3a3a3;font-size:11px;cursor:pointer}
+  #all22-ang .pgrp{margin-left:auto;display:flex;gap:4px;align-items:center;position:relative}
+  #all22-ang .ico{padding:4px 9px;min-width:30px;font-size:15px;line-height:16px}
+  #all22-ang .ico:hover:not(:disabled){border-color:#b1924f;color:#b1924f}
+  #all22-ang .ico:disabled{opacity:.3;cursor:default}
+  /* positioned so the dot below anchors to the gear itself rather than to
+     .pgrp, where it would only look right while the gear stays last */
+  #all22-ang .gear{font-size:12px;position:relative}
+  /* a clip rolling into the next one is worth knowing about without opening
+     the menu to check */
+  #all22-ang .gear.act::after{content:"";position:absolute;top:2px;right:3px;
+    width:5px;height:5px;border-radius:50%;background:#b1924f}
+  /* the panel's CSS lands in NFL's page, so hidden is asserted rather than
+     left to the UA sheet -- same as .dict and .notice above */
+  #all22-pop[hidden]{display:none!important}
+  #all22-pop{position:absolute;top:calc(100% + 8px);right:0;z-index:30;width:212px;
+    background:#1a1a1a;border:1px solid #313131;border-radius:8px;padding:8px 10px 9px;
+    box-shadow:0 12px 28px rgba(0,0,0,.6)}
+  #all22-pop .prow{display:flex;align-items:center;justify-content:space-between;
+    gap:10px;padding:5px 0}
+  #all22-pop .plab{color:#cfcfcf;font-size:12px;white-space:nowrap}
+  #all22-pop .seg{display:flex;gap:4px}
+  #all22-pop .seg button{padding:3px 7px;min-width:34px;font-size:11px}
+  #all22-pop .tg{padding:3px 11px;font-size:11px}
+  #all22-pop .pnote{color:#7d7d7d;font-size:10.5px;line-height:1.35;
+    padding:5px 0 0;border-top:1px solid #262626;margin-top:4px}
+  #all22-ang .khint{color:#a3a3a3;font-size:11px;cursor:pointer;margin-left:10px}
   #all22-ang .khint:hover{color:#b1924f}
   #all22-ang{display:flex;gap:6px;padding:8px 14px;background:#121212;border-bottom:1px solid #282828}
   /* Wide mode covers the page instead of squeezing it into a sliver. This strip
@@ -953,6 +1068,38 @@
     </div>`;
   document.documentElement.appendChild(p);
 
+  /* Auto-advance. "ended" does not bubble, but a capturing listener on the
+     host still sees it, which survives NFL's player recreating its <video>
+     for every clip -- attaching per clip would need a hook into a mount we do
+     not own. Wired here rather than beside the other listeners because
+     #all22-video does not exist until the panel is in the document. Off by
+     default: a clip ending is where you rewind and look again, so advancing
+     has to be asked for. */
+  // a menu that only closes by its own button is a menu you fight
+  document.addEventListener("click", e => {
+    if (!menuOpen) return;
+    const grp = document.querySelector("#all22-ang .pgrp");
+    if (grp && !grp.contains(e.target)) setMenu(false);
+  }, true);
+
+  let endTimer = null;
+  document.getElementById("all22-video").addEventListener("ended", e => {
+    if (!autoNext || e.target !== vid()) return;
+    /* The two angles are one playlist inside NFL's player. Whether it rolls on
+       to the next angle by itself is its business, not something to assume in
+       either direction: watch for a beat instead. If the angle moved, or
+       anything started playing again, this clip was not the last thing to
+       watch and the play stays put. */
+    const wasIdx = curIdx, wasSel = selIdx;
+    clearTimeout(endTimer);
+    endTimer = setTimeout(() => {
+      if (!autoNext || selIdx !== wasSel || curIdx !== wasIdx) return;
+      const v = vid();
+      if (v && !v.paused && !v.ended) return;
+      nextPlay();
+    }, 500);
+  }, true);
+
   const q = s => p.querySelector(s);
 
   /* First-run notice. The landing page is missed by most installs, so the
@@ -974,7 +1121,13 @@
     <button id="a-notice-ok">Got it</button>`;
   q(".hd").insertAdjacentElement("afterend", notice);
   backend("/api/prefs").then(prefs => {
-    if ((prefs && prefs.noticeDismissed) >= NOTICE_VERSION) return;
+    prefs = prefs || {};
+    // rate is clamped on the way in: it is read back from storage, which a
+    // previous version or a hand-edit could leave anything in
+    if (prefs.rate) rate = Math.min(4, Math.max(0.1, +prefs.rate || 1));
+    autoNext = !!prefs.autoNext;
+    if (curList.length) drawAngles();
+    if (prefs.noticeDismissed >= NOTICE_VERSION) return;
     notice.hidden = false;
   }).catch(() => { notice.hidden = false; });
   q("#a-notice-ok").onclick = () => {
