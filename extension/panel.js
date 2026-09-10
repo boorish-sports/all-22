@@ -275,10 +275,11 @@
   let root = null, curList = [], curIdx = 0, syncTimer = null, vpCache = null;
   /* Playback rate is sticky across clips: film study is a rate you settle on,
      not one you re-pick every play. It rides on the raw <video> element, which
-     NFL's player recreates per clip, so it is re-applied once per new element
-     (see applyRate) rather than every sync tick -- polling it back would fight
-     the player's own rate menu the moment you used it. */
-  const RATES = [0.5, 1, 2];
+     NFL's player recreates per clip and resets during the load, so it is
+     re-asserted on that load's own events (see enforceRate) rather than on a
+     timer -- polling would fight the player's own rate menu the moment you
+     used it. */
+  const RATES = [0.5, 1, 1.5, 2];
   let rate = 1, ratedEl = null, autoNext = false, menuOpen = false;
 
   // Find NFL's player instance by walking the React fiber off the mounted node.
@@ -326,13 +327,13 @@
         ` title="Playback settings" aria-label="Playback settings"` +
         ` aria-expanded="${menuOpen}">\u2699\ufe0e</button>` +
         `<div id="all22-pop"${menuOpen ? "" : " hidden"}>
-           <div class="prow"><span class="plab">Speed</span><span class="seg">` +
+           <div class="prow col"><span class="plab">Speed</span><span class="seg">` +
              RATES.map(r => `<button class="${r === rate ? "on" : ""}" data-r="${r}">${r}\u00d7</button>`).join("") +
            `</span></div>
            <div class="prow"><span class="plab">Auto-play next</span>
              <button class="tg${autoNext ? " on" : ""}" data-auto="1">${autoNext ? "On" : "Off"}</button>
            </div>
-           <div class="pnote">Ends a clip on the last angle, then loads the next play.</div>
+           <div class="pnote">Plays both angles, then loads the next play.</div>
          </div>` +
       '</span>' +
       '<span class="khint" title="Keyboard shortcuts">? Keys · \u2190 \u2192 Frame step</span>';
@@ -377,13 +378,18 @@
     post("/api/prefs", { autoNext }).catch(() => {});
   }
 
-  /* One rate per new <video>. Re-applying on every tick would overwrite a rate
-     the viewer had just chosen from NFL's own control. */
-  function applyRate() {
+  /* Setting the rate once on a fresh <video> does not hold: NFL's player puts
+     it back to 1 while the clip loads, which is after any rate we set on the
+     bare element. So re-assert it on the events a load actually fires.
+     Deliberately NOT on a timer -- mid-clip, a rate the viewer picked from the
+     player's own control should stand until the next clip. */
+  function enforceRate() {
     const v = vid();
-    if (!v || v === ratedEl) return;
+    if (!v) return;
     ratedEl = v;
-    try { v.playbackRate = rate; } catch {}
+    if (Math.abs(v.playbackRate - rate) > 0.001) {
+      try { v.playbackRate = rate; } catch {}
+    }
   }
 
   function setAngle(i) {
@@ -479,7 +485,6 @@
     syncTimer = setInterval(() => {
       const host = document.getElementById("all22-video");
       if (!host || !host.firstChild) { clearInterval(syncTimer); return; }
-      applyRate();
       const i = currentAngleIndex();
       if (i != null && i !== curIdx) { curIdx = i; drawAngles(); }
     }, 400);
@@ -957,6 +962,12 @@
     box-shadow:0 12px 28px rgba(0,0,0,.6)}
   #all22-pop .prow{display:flex;align-items:center;justify-content:space-between;
     gap:10px;padding:5px 0}
+  /* the speed row stacks, so adding a rate widens the buttons rather than
+     squeezing them against the label */
+  #all22-pop .prow.col{display:block;padding:3px 0 7px}
+  #all22-pop .prow.col .plab{display:block;margin-bottom:5px}
+  #all22-pop .prow.col .seg{display:flex}
+  #all22-pop .prow.col .seg button{flex:1;min-width:0}
   #all22-pop .plab{color:#cfcfcf;font-size:12px;white-space:nowrap}
   #all22-pop .seg{display:flex;gap:4px}
   #all22-pop .seg button{padding:3px 7px;min-width:34px;font-size:11px}
@@ -1068,13 +1079,16 @@
     </div>`;
   document.documentElement.appendChild(p);
 
-  /* Auto-advance. "ended" does not bubble, but a capturing listener on the
-     host still sees it, which survives NFL's player recreating its <video>
-     for every clip -- attaching per clip would need a hook into a mount we do
-     not own. Wired here rather than beside the other listeners because
-     #all22-video does not exist until the panel is in the document. Off by
-     default: a clip ending is where you rewind and look again, so advancing
-     has to be asked for. */
+  /* Every event a clip load fires, because which one the player resets the rate
+     on is its business, and one late re-assert for a reset that lands after
+     playback has already started. */
+  (function wireRate() {
+    const host = document.getElementById("all22-video");
+    ["loadedmetadata", "loadeddata", "canplay", "play", "playing"].forEach(ev =>
+      host.addEventListener(ev, enforceRate, true));
+    host.addEventListener("playing", () => setTimeout(enforceRate, 300), true);
+  })();
+
   // a menu that only closes by its own button is a menu you fight
   document.addEventListener("click", e => {
     if (!menuOpen) return;
@@ -1082,22 +1096,37 @@
     if (grp && !grp.contains(e.target)) setMenu(false);
   }, true);
 
+  /* Auto-advance. "ended" does not bubble, but a capturing listener on the
+     host still sees it, which survives NFL's player recreating its <video>
+     for every clip -- attaching per clip would need a hook into a mount we do
+     not own. Wired here rather than beside the other listeners because
+     #all22-video does not exist until the panel is in the document. Off by
+     default: a clip ending is where you rewind and look again, so advancing
+     has to be asked for. */
   let endTimer = null;
   document.getElementById("all22-video").addEventListener("ended", e => {
     if (!autoNext || e.target !== vid()) return;
-    /* The two angles are one playlist inside NFL's player. Whether it rolls on
-       to the next angle by itself is its business, not something to assume in
-       either direction: watch for a beat instead. If the angle moved, or
-       anything started playing again, this clip was not the last thing to
-       watch and the play stays put. */
+    /* The two angles are one playlist inside NFL's player, but it does NOT
+       roll on to the second by itself -- playback simply stops at the end of
+       the sideline clip. So walk the angles here first and only leave the play
+       from the last one. Getting this wrong skips endzone entirely, which is
+       half of what All-22 is for. */
     const wasIdx = curIdx, wasSel = selIdx;
     clearTimeout(endTimer);
     endTimer = setTimeout(() => {
       if (!autoNext || selIdx !== wasSel || curIdx !== wasIdx) return;
       const v = vid();
-      if (v && !v.paused && !v.ended) return;
-      nextPlay();
-    }, 500);
+      if (v && !v.paused && !v.ended) return;   // something started it again
+      if (curIdx >= curList.length - 1) { nextPlay(); return; }
+      setAngle(curIdx + 1);
+      // whether loadVideoFromProps honours the player's autoplay for a
+      // mid-playlist switch is its business; nudge it rather than leave the
+      // endzone angle sitting paused on a black frame
+      setTimeout(() => {
+        const nv = vid();
+        if (nv && nv.paused) nv.play().catch(() => {});
+      }, 400);
+    }, 250);
   }, true);
 
   const q = s => p.querySelector(s);
