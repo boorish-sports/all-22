@@ -1041,7 +1041,7 @@
       <label class="ctl"><span>Week</span><select id="a-week"><option value="">Any</option></select></label>
       <label class="ctl"><span>Team</span><select id="a-team"><option value="">Any</option></select></label>
       <label class="ctl"><span>Player</span><span class="pwrap"><input id="a-player" placeholder="Any" size="11" autocomplete="off"><div class="pmenu" id="a-pmenu" hidden></div></span></label>
-      <label class="ctl" id="a-role-wrap"><span>Did</span><select id="a-role"></select></label>
+      <label class="ctl" id="a-role-wrap"><span>Action</span><select id="a-role"></select></label>
       <label class="ctl"><span>Play Type</span><select id="a-type"><option value="">Any</option><option value="pass">Pass</option><option value="run">Run</option><option value="punt">Punt</option><option value="field_goal">Field goal</option></select></label>
       <label class="ctl"><span>Sort</span><select id="a-order"><option value="game">By game</option><option value="epa">EPA high</option><option value="epa_asc">EPA low</option></select></label>
     </div>
@@ -1365,7 +1365,7 @@
       facets = {}; excl = new Set();
       loadSubs();
       run();                                          // land on the position's default view
-    }).catch(() => { sel.innerHTML = '<option value="any">Any involvement</option>'; });
+    }).catch(() => { sel.innerHTML = '<option value="any">Any</option>'; });
   }
 
   function playerLookup(term) {

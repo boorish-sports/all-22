@@ -267,11 +267,11 @@ function weekSlug(t, w) {
    THIS player forced it, match their id against that stat's own columns.
    Mirrors roles.py -- keep the two in step. */
 const ROLES = [
-  ["any", "Any involvement", null],
+  ["any", "Any", null],
   ["passer", "Passing", ["passer_player_id"]],
   ["rusher", "Rushing", ["rusher_player_id", "lateral_rusher_player_id"]],
   ["receiver", "Receiving", ["receiver_player_id", "lateral_receiver_player_id"]],
-  ["touchdown", "Scored TD", ["td_player_id"]],
+  ["touchdown", "Touchdown", ["td_player_id"]],
   ["sack", "Sack", ["sack_player_id", "half_sack_1_player_id", "half_sack_2_player_id", "lateral_sack_player_id"]],
   ["qb_hit", "QB hit", ["qb_hit_1_player_id", "qb_hit_2_player_id"]],
   ["tackle_for_loss", "Tackle for loss", ["tackle_for_loss_1_player_id", "tackle_for_loss_2_player_id"]],
@@ -283,9 +283,9 @@ const ROLES = [
   ["interception", "Interception", ["interception_player_id", "lateral_interception_player_id"]],
   ["pass_defense", "Pass defensed", ["pass_defense_1_player_id", "pass_defense_2_player_id"]],
   ["forced_fumble", "Forced fumble", ["forced_fumble_player_1_player_id", "forced_fumble_player_2_player_id"]],
-  ["fumbled", "Fumbled it", ["fumbled_1_player_id", "fumbled_2_player_id"]],
-  ["fumble_recovery", "Recovered fumble", ["fumble_recovery_1_player_id", "fumble_recovery_2_player_id"]],
-  ["penalty", "Penalty on", ["penalty_player_id"]],
+  ["fumbled", "Fumble", ["fumbled_1_player_id", "fumbled_2_player_id"]],
+  ["fumble_recovery", "Fumble recovery", ["fumble_recovery_1_player_id", "fumble_recovery_2_player_id"]],
+  ["penalty", "Penalty", ["penalty_player_id"]],
   ["returner", "Return", ["punt_returner_player_id", "kickoff_returner_player_id",
     "lateral_punt_returner_player_id", "lateral_kickoff_returner_player_id"]],
   ["kicking", "Kick / punt", ["kicker_player_id", "punter_player_id"]],
