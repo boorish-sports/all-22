@@ -94,6 +94,26 @@ user-activity, or website-content data. Certify all three statements.
 
 **Privacy policy URL:** https://boorish-sports.github.io/all-22/privacy.html
 
+## Test instructions tab
+
+    The search panel needs no account: open any page on https://pro.nfl.com
+    (for example https://pro.nfl.com/film/plays) and click the gold ALL-22
+    tab on the right edge. The panel downloads a public data file from
+    GitHub (about 15 MB, once), then every search runs locally. Type
+    "touchdown" in the "Text in description" box and click Search to see
+    results. Only clip playback requires an active NFL Pro subscription,
+    which we cannot provide; without one, clicking a play shows NFL Pro's
+    own sign-in prompt inside the panel. No test account is needed for the
+    search, filters, or dictionary.
+
+## Screenshots
+
+At least one, 1280×800 or 640×400, PNG or JPEG, no NFL logos or account
+details in frame. Good subjects, in order: the result list for a search
+("touchdown" over the newest week), the filter dictionary (book icon), and
+the panel with a column filter applied. The DRM video renders black in any
+capture, so frame the player controls rather than the video itself.
+
 ## Distribution tab
 
 **Visibility:** Unlisted.
