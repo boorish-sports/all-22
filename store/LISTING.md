@@ -42,12 +42,16 @@ reference to the service the extension works with.
 
 ### Screenshots
 
-Three at 1280×800 in `store/screenshots/`, taken 2026-09-12 from a live
-session over the Season Passing Stats page, no account details in frame:
+Three at 1280×800 in `store/screenshots/`, chosen by Boorish on 2026-09-12 to
+show what NFL Pro's own sort cannot do, each over a Pro stats page. The
+originals were 2900×1616 captures; they are padded top and bottom with the
+page background to 16:10, not cropped.
 
-1. `1-results.png` — the result list for "touchdown" over 2026 week 1
-2. `2-clip.png` — the Sideline angle of a Purdy deep touchdown, paused mid-play
-3. `3-dictionary.png` — the filter dictionary filtered to "epa"
+1. `1-rushing-clip.png` — Rhamondre Stevenson rushes, first-down runs through
+   the guard gap, sorted EPA high, with the Sideline clip playing
+2. `2-receiving-facets.png` — Amon-Ra St. Brown receiving, facets narrowed to
+   Left with YAC EPA ≥ 0.5 and screens excluded, 14 plays
+3. `3-dictionary.png` — the filter dictionary searched for "drive"
 
 Upload in that order; the first is the one shown in search results.
 
