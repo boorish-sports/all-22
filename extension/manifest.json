@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "All-22 Film Search",
-  "version": "3.1.0",
+  "version": "3.2.0",
   "description": "Search nflverse play-by-play locally and watch the matching All-22 clip inline on NFL Pro. Requires an NFL Pro subscription.",
   "icons": {
     "16": "icons/icon16.png",
