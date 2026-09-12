@@ -51,6 +51,55 @@ session over the Season Passing Stats page, no account details in frame:
 
 Upload in that order; the first is the one shown in search results.
 
+## Privacy practices tab
+
+**Single purpose description:**
+
+    Adds a search panel to NFL Pro's film room (pro.nfl.com) that filters nflverse play-by-play locally and plays the selected clip in NFL Pro's own player.
+
+**Permission justifications:**
+
+- `storage` — Keeps a small map of game identifiers and the user's UI
+  preferences (first-run notice dismissed) in chrome.storage.local.
+- `unlimitedStorage` — Caches the ~60 MB SQLite play index in IndexedDB so it
+  is downloaded once rather than on every visit. Exceeds the default quota.
+- `offscreen` — Runs the SQLite WebAssembly engine in an offscreen document.
+  The content script runs inside pro.nfl.com, whose Content-Security-Policy
+  forbids WebAssembly, and MV3 service workers are not suitable for holding a
+  60 MB database in memory.
+- Host `https://pro.nfl.com/*` — The extension's entire function: injects the
+  search panel into the film room and, when the user clicks a play, requests
+  that clip from NFL Pro under the user's own session.
+- Host `https://github.com/boorish-sports/all-22-index/*`,
+  `https://objects.githubusercontent.com/*`,
+  `https://release-assets.githubusercontent.com/*` — Downloads the play index
+  (a data file, not code) from the project's GitHub Releases. GitHub redirects
+  release downloads through those two asset hosts, so each needs an entry.
+
+**Remote code:** No, I am not using remote code. (If asked: the extension
+downloads a SQLite data file from GitHub Releases and verifies its SHA-256
+against a manifest before opening it. It contains no executable code. All
+JavaScript and WebAssembly ship inside the package.)
+
+**Data usage:** tick nothing under "What user data do you plan to collect?"
+The extension collects no personally identifiable information, health,
+financial, authentication, personal-communication, location, web-history,
+user-activity, or website-content data. Certify all three statements.
+
+**Privacy policy URL:** https://boorish-sports.github.io/all-22/privacy.html
+
+## Test instructions tab
+
+    The search panel needs no account: open any page on https://pro.nfl.com
+    (for example https://pro.nfl.com/film/plays) and click the gold ALL-22
+    tab on the right edge. The panel downloads a public data file from
+    GitHub (about 15 MB, once), then every search runs locally. Type
+    "touchdown" in the "Text in description" box and click Search to see
+    results. Only clip playback requires an active NFL Pro subscription,
+    which we cannot provide; without one, clicking a play shows NFL Pro's
+    own sign-in prompt inside the panel. No test account is needed for the
+    search, filters, or dictionary.
+
 ## Distribution tab
 
 **Visibility:** Unlisted.
