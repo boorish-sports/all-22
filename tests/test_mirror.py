@@ -90,6 +90,22 @@ def build_cases(con):
     S("bad_numeric", "f=epa:gt:abc&f=week:eq:1")
     S("bad_op_ignored", "f=epa:bogus:1&f=week:eq:1&f=qtr:eq:1&f=down:eq:4")
     S("unknown_col_ignored", "f=nope:eq:1&f=week:eq:1&f=qtr:eq:1&f=down:eq:4")
+    # the measure that picked the play, carried onto the row and offered as a
+    # sort. WHICH plays come back must not move when `show` does -- these are
+    # deliberately over a set with NULLs in it, because "no air EPA" is where
+    # a sort and a display most easily disagree
+    W = "f=week:eq:1&f=qtr:eq:1&f=down:eq:3"
+    S("show_numeric", W + "&show=air_epa")
+    S("show_group", "f=@sack_player_name:notnull&f=week:eq:1&show=@sack_player_name,air_epa")
+    S("show_drops_junk", W + "&show=nope,epa,air_epa,,air_epa")   # unknown, core, blank, dup
+    S("show_caps", W + "&show=air_epa,cp,cpoe,xyac_epa,wp")       # SHOW_MAX is 4
+    S("order_col_desc", W + "&show=air_epa&order=air_epa:desc")
+    S("order_col_asc", W + "&show=air_epa&order=air_epa:asc")     # NULLs last, not first
+    S("order_group", "f=@sack_player_name:notnull&f=week:eq:1"
+                     "&show=@sack_player_name&order=@sack_player_name:desc")
+    S("order_bad_col", W + "&order=nope:desc")
+    S("order_bad_dir", W + "&show=air_epa&order=air_epa:sideways")
+    S("order_no_dir", W + "&show=air_epa&order=air_epa")
     S("qb_passer_subs", "player=%s&role=passer&sub=play_action&sub=deep&nsub=intercepted" % qb)
     S("qb_rusher_designed", "player=%s&role=rusher&sub=designed" % qb)
     S("qb_rusher_kneel", "player=%s&role=rusher&sub=kneel" % qb)
@@ -227,9 +243,13 @@ def compare(case, py, js):
             if isinstance(rows, list) and len(rows) >= 1000:
                 return "%s returned 1000 rows: tighten this case, LIMIT can split a tie" % side
         if isinstance(py, list) and isinstance(js, list):
-            # order matters only through the sort key: the sequence of epa values
-            # (or game/play ids) must match; within a tie the engines may differ
-            key = "epa" if "order=epa" in case["qs"] else None
+            # order matters only through the sort key: the sequence of sorted
+            # values must match; within a tie the engines may differ. The key is
+            # whatever `order` names -- epa for the two fixed sorts, otherwise
+            # the column in "<col>:<dir>", which `show` put on the row.
+            o = dict(urllib.parse.parse_qsl(case["qs"])).get("order", "")
+            key = "epa" if o in ("epa", "epa_asc") else (
+                o.rsplit(":", 1)[0] if ":" in o else None)
             if key:
                 d = same([norm(r.get(key)) for r in py], [norm(r.get(key)) for r in js], "order")
                 if d:

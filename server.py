@@ -323,13 +323,18 @@ def scope_filters(con, qs):
 
 def search(con, qs):
     where, args = scope_filters(con, qs)
-    sql = "SELECT %s FROM plays p" % ",".join('p."%s"' % c for c in CORE)
+    cols = schema(con)
+    gs = groups(cols)
+    # whatever the caller filtered or sorted by, carried on the row so the
+    # number that selected the play is visible next to the play
+    show = roles_mod.show_columns(
+        (qs.get("show") or [""])[0].split(","), cols, gs, CORE)
+    sel = ['p."%s"' % c for c in CORE]
+    sel += ['%s AS "%s"' % (roles_mod.value_sql(c, cols, gs, "p."), c) for c in show]
+    sql = "SELECT %s FROM plays p" % ",".join(sel)
     if where:
         sql += " WHERE " + " AND ".join(where)
-    order = (qs.get("order") or ["game"])[0]
-    sql += {"epa": " ORDER BY p.epa DESC",
-            "epa_asc": " ORDER BY p.epa ASC"}.get(
-        order, " ORDER BY p.old_game_id, p.play_id")
+    sql += roles_mod.order_sql((qs.get("order") or ["game"])[0], cols, gs, "p.")
     sql += " LIMIT ?"
     args.append(min(int((qs.get("limit") or ["300"])[0]), 1000))
 

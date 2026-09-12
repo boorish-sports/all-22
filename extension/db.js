@@ -590,12 +590,65 @@ function scopeFilters(q) {
   return [where, args];
 }
 
+/* ---------- the measure that picked the play ----------
+   The play list shows EPA because EPA is on every play. Any OTHER measure you
+   filtered by is invisible: "Air EPA >= 0" returns thirty plays and not one of
+   them says what its air EPA was, so the filter can be trusted but not read.
+   `show` names the extra columns a row carries, and the same resolution answers
+   "sort by that column" -- you cannot rank by a number you may not select.
+   Mirrors roles.py. */
+const SHOW_MAX = 4;          // four extra measures is already a long meta line
+
+// SQL for one displayable/sortable column, or null if this index has no such
+// thing. A merged column reads as its first filled slot, which is what the
+// panel shows under that name everywhere else.
+function valueSql(col) {
+  const g = groups()[col];
+  if (g) return `COALESCE(${g.members.map(m => `"${m}"`).join(",")})`;
+  return col in cols() ? `"${col}"` : null;
+}
+
+function showColumns(wanted) {
+  const out = [];
+  for (let col of wanted) {
+    col = (col || "").trim();
+    if (!col || CORE.includes(col) || out.includes(col)) continue;
+    if (valueSql(col) === null) continue;
+    out.push(col);
+    if (out.length >= SHOW_MAX) break;
+  }
+  return out;
+}
+
+/* ORDER BY for the play list. `game` walks the game in play order; `epa` and
+   `epa_asc` are the two the panel has always offered; anything else is
+   "<column>:desc" or "<column>:asc" for a column the user picked.
+
+   NULLs sort last in both directions. A play with no air EPA is not the
+   smallest air EPA, and floating it to the top of "Air EPA low" would bury the
+   answer under every play the measure does not apply to. */
+function orderSql(order) {
+  const fixed = { epa: " ORDER BY epa DESC", epa_asc: " ORDER BY epa ASC" };
+  if (order in fixed) return fixed[order];
+  const cut = String(order || "").lastIndexOf(":");
+  const col = cut < 0 ? "" : String(order).slice(0, cut);
+  const dir = cut < 0 ? "" : String(order).slice(cut + 1);
+  const expr = col ? valueSql(col) : null;
+  if (expr === null || (dir !== "asc" && dir !== "desc"))
+    return " ORDER BY old_game_id, play_id";
+  return ` ORDER BY ${expr} IS NULL, ${expr} ${dir.toUpperCase()}`;
+}
+
 function search(q) {
   const [where, args] = scopeFilters(q);
-  let sql = "SELECT " + CORE.map(x => `"${x}"`).join(",") + " FROM plays";
+  // whatever the caller filtered or sorted by, carried on the row so the number
+  // that selected the play is visible next to the play
+  const show = showColumns(String(q.show || "").split(","));
+  const sel = CORE.map(x => `"${x}"`)
+    .concat(show.map(c => `${valueSql(c)} AS "${c}"`));
+  let sql = "SELECT " + sel.join(",") + " FROM plays";
   if (where.length) sql += " WHERE " + where.join(" AND ");
-  sql += { epa: " ORDER BY epa DESC", epa_asc: " ORDER BY epa ASC" }[q.order]
-      || " ORDER BY old_game_id, play_id";
+  sql += orderSql(q.order);
   sql += " LIMIT " + Math.min(Number(q.limit) || 300, 1000);
   const rows = db.selectObjects(sql, args);
   for (const r of rows) r.week_slug = weekSlug(r.season_type, r.week);

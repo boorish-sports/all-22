@@ -93,6 +93,25 @@ keys with no column behind them, so a facet count of 0 on the newest week is
 still unexplained. Worth fixing by having `/api/player_subfilters` return the
 source key per row.
 
+### The measure that picked the play
+
+The result row has always shown EPA, because EPA is on every play. Everything
+else you filtered by was invisible — `air_epa >= 0` returned thirty plays and
+not one of them said what its air EPA was — so the filter could be trusted but
+not read, and there was no way to ask for the best ones first.
+
+`/api/search` now takes `show=<columns>` (resolved by `roles.value_sql`, capped
+at `SHOW_MAX` = 4, merged columns read as `COALESCE` over their slots) and
+`order=<column>:desc|asc` alongside the old `game`/`epa`/`epa_asc`. NULLs sort
+last in both directions: a play with no air EPA is not the play with the lowest
+air EPA, and floating it to the top of "Air EPA low" buries the answer.
+
+`panel.js` fills both in from the active column filters. A filter that already
+fixes its value (`=`, or a Yes/No flag) is left off the row; a numeric one adds
+`<name> high` / `<name> low` to the Sort menu, and the column you sorted by is
+always shown. `drawSort()` hangs off `drawChips()`, the one place `extra`
+changes land, and every caller of it re-runs the search.
+
 ### The mirror rule — read this twice
 
 **`server.py` + `roles.py` and `extension/db.js` are two hand-written

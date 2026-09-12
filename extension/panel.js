@@ -819,6 +819,7 @@
   #all22 .dn{color:#8f8f8f}
   /* a column that has not been charted for the weeks on screen: muted when it
      is only the cadence worth knowing, amber when data is actually missing */
+  #all22 .m .sv{color:#c9a961}
   #all22 .late{flex:0 0 100%;color:#9a9a9a;font-size:10.5px;line-height:1.4;margin-top:4px}
   #all22 .late.warn{color:#e0a86b}
   #all22 .dempty{padding:16px 14px;color:#bdbdbd;font-size:12px}
@@ -1793,6 +1794,63 @@
     if (k) hint(k);
   }, 180));
 
+  /* ---------------- the measure that picked the play ----------------
+     The row has always shown EPA, because EPA is on every play. Whatever else
+     you filtered by was invisible: "Air EPA >= 0" returns thirty plays and not
+     one of them says what its air EPA was, so the filter can be trusted but not
+     read. These carry it onto the row and onto the Sort menu. */
+  const NUMERIC = c => COLTYPE[c] === "REAL" || COLTYPE[c] === "INTEGER";
+
+  // "air_epa:desc" -> "air_epa"; the three fixed sorts carry no column
+  function sortCol() {
+    const v = q("#a-order").value, cut = v.lastIndexOf(":");
+    return cut > 0 ? v.slice(0, cut) : null;
+  }
+
+  /* Already spelled out by the row template below, so repeating one as a
+     measure would print "3&8" and then "Ydstogo 8" beside it. Not a copy of
+     CORE in server.py / db.js: that list is what the row CARRIES, this one is
+     what it DISPLAYS, and they are free to differ. Sorting by these is still
+     worth offering -- longest-to-go first is a real question. */
+  const ON_ROW = new Set(["desc", "home_team", "away_team", "week", "qtr", "time",
+                          "down", "ydstogo", "epa", "old_game_id", "play_id"]);
+
+  /* An "=" filter and a Yes/No flag already tell you their value -- printing
+     "Play action Yes" on every row of a play-action search is noise -- so only
+     the filters whose value can still vary are worth the space. The column you
+     sorted by always earns its place: it is the one you are reading down. */
+  function showCols() {
+    const out = [];
+    const add = c => { if (c && !ON_ROW.has(c) && !out.includes(c)) out.push(c); };
+    extra.forEach(f => {
+      if (f.op === "eq" || f.op === "isnull" || BINARY.has(f.col)) return;
+      add(f.col);
+    });
+    const s = sortCol();
+    if (s && !ON_ROW.has(s) && !out.includes(s)) out.unshift(s);
+    return out.slice(0, 4);          // SHOW_MAX in roles.py / db.js
+  }
+
+  /* Sort offers the measures you filtered by, because a range filter is nearly
+     always a question about the extremes -- "air EPA >= 0" wants the best ones
+     first. Numbers only: ranking by a player name, or by a flag you have
+     already pinned to one state, orders nothing. */
+  function drawSort() {
+    const sel = q("#a-order"), was = sel.value;
+    sel.querySelectorAll("option[data-col]").forEach(o => o.remove());
+    const seen = new Set(["epa"]);   // EPA high / low are already on the menu
+    extra.forEach(f => {
+      if (seen.has(f.col) || BINARY.has(f.col) || !NUMERIC(f.col)) return;
+      seen.add(f.col);
+      const n = esc(humanCol(f.col)), c = esc(f.col);
+      sel.insertAdjacentHTML("beforeend",
+        `<option data-col="1" value="${c}:desc">${n} high</option>` +
+        `<option data-col="1" value="${c}:asc">${n} low</option>`);
+    });
+    // the sort in use may have just lost the filter that offered it
+    sel.value = [...sel.options].some(o => o.value === was) ? was : "game";
+  }
+
   function colChipText(f) {
     // "Play action: Yes" beats "Play action = 1" in the chip and in the
     // Filters strip, which is the same string
@@ -1804,6 +1862,7 @@
   // lives in one place. Both halves remove -- unlike a facet chip there is no
   // include/exclude split here.
   function drawChips() {
+    drawSort();                 // the sorts on offer follow the filters
     const c = q("#a-colrow");
     c.innerHTML = !extra.length ? "" :
       `<span class="lab">Column</span>` + extra.map((f, i) =>
@@ -1929,6 +1988,9 @@
     const u = scopeParams();
     dictFlush();                 // the dictionary, if open, describes the new scope
     u.set("order", q("#a-order").value);
+    // read once: the rows are rendered against the same list that asked for them
+    const shown = showCols();
+    if (shown.length) u.set("show", shown.join(","));
     u.set("limit", "300");
 
     q("#all22-st").textContent = "searching…";
@@ -1947,13 +2009,19 @@
       } else {
         q("#all22-st").textContent = rows.length + " plays";
       }
+      // the measures this search was selected by, beside the EPA that is always
+      // there. NULL prints as "--": the play has no such measure, which is a
+      // different answer from zero and the row should not pretend otherwise.
+      const measures = r => shown.map(c =>
+        `<span class="sv">${esc(humanCol(c))} ${r[c] == null ? "--"
+          : esc(NUMERIC(c) ? sig(r[c]) : String(r[c]))}</span> · `).join("");
       q("#all22-res").innerHTML = rows.map((r, i) => `
         <div class="row" data-i="${i}">
           <div>${esc((r.desc || "").slice(0, 150))}</div>
           <div class="m">${r.away_team} @ ${r.home_team} · wk ${r.week} · Q${r.qtr} ${r.time || ""} ·
             ${r.down ? r.down + "&amp;" + r.ydstogo : "--"} ·
             <span class="${r.epa > 0 ? "pos" : "neg"}">EPA ${r.epa == null ? "--" : (+r.epa).toFixed(2)}</span> ·
-            ${r.old_game_id}/${r.play_id}</div>
+            ${measures(r)}${r.old_game_id}/${r.play_id}</div>
         </div>`).join("");
       lastRows = rows;
       selIdx = -1;
@@ -1980,5 +2048,8 @@
   q("#a-go").onclick = () => { run(); refreshCounts(); };
   ["#a-season", "#a-week", "#a-team", "#a-type"].forEach(sel =>
     q(sel).addEventListener("change", () => { run(); refreshCounts(); }));
+  // re-sorting does not change WHICH plays match, only their order, so it runs
+  // the search again but leaves the facet counts alone
+  q("#a-order").addEventListener("change", () => run());
   p.addEventListener("keydown", e => { if (e.key === "Enter") run(); });
 })();

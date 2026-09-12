@@ -177,6 +177,22 @@ repeatable and ANDed; ops are `eq ne gt gte lt lte like notnull isnull`.
 So yes: tacklers, forced fumbles, EPA, CPOE, personnel groupings, win
 probability, air yards, drive state — anything in the row.
 
+### Showing and sorting by the measure you filtered on
+
+A result row always carries EPA. `show=<columns>` (up to four, merged columns
+included) puts any other measure on it as well, and `order=<column>:desc` or
+`:asc` ranks by it — NULLs last in both directions, because a play with no air
+EPA is not the play with the lowest air EPA.
+
+    # the deepest completions of week 1, with the air EPA that ranked them
+    /api/search?f=week:eq:1&f=air_epa:gte:0&show=air_epa&order=air_epa:desc
+
+The panel does this for you: filter on a column and its value appears on every
+row, and numeric filters add themselves to the **Sort** menu. Filters that
+already fix their value — `=` on a column, Yes/No on a flag — are left off the
+row, since printing "Play action Yes" on every row of a play-action search says
+nothing.
+
 ### Merged columns
 
 nflverse numbers the slots of a multi-participant stat — two forced-fumble
@@ -292,6 +308,7 @@ charting columns provided by FTN Data via nflverse; the field definitions in
     python3 tests/test_mirror.py      # the two-backend mirror rule
     node tests/test_throttle.mjs      # the NFL request gate and selection coalescing
     node tests/test_late.mjs          # the "not charted yet" notices
+    node tests/test_sort.mjs          # row measures and the Sort menu
 
 `test_mirror.py` runs `server.py`/`roles.py` and the shipped `extension/db.js`
 over `data/plays.db` and diffs every endpoint. Exits non-zero on any
@@ -302,3 +319,7 @@ NFL traffic for the page.
 `test_late.mjs` cuts the late-data notices out of `panel.js` and drives them
 through every state FTN's charting can be in — complete, half a week in, a week
 with nothing yet, and a selection that does not reach the gap at all.
+`test_sort.mjs` cuts the row-measure and Sort-menu rules out of `panel.js` and
+checks which filters earn a column on the row, which of them can be ranked by,
+and that redrawing the menu neither duplicates options nor loses the sort you
+were using.

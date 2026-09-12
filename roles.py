@@ -367,6 +367,61 @@ def group_sql(members, op, val, coltype):
 
 
 
+# ------------------------------------------------------------ result rows --
+# The play list shows EPA because EPA is on every play. Any OTHER measure you
+# filtered by is invisible: "Air EPA >= 0" returns thirty plays and not one of
+# them says what its air EPA was, so the filter can be trusted but not read.
+# `show` names the extra columns a row should carry, and the same resolution
+# answers "sort by that column" -- you cannot rank by a number you are not
+# allowed to select.
+SHOW_MAX = 4          # four extra measures is already a long meta line
+
+
+def value_sql(col, cols, groups_map, prefix=""):
+    """SQL for one displayable/sortable column, or None if this index has no
+    such thing. A merged column reads as its first filled slot, which is what
+    the panel shows under that name everywhere else. Mirrors db.js."""
+    g = groups_map.get(col)
+    if g:
+        return "COALESCE(%s)" % ",".join('%s"%s"' % (prefix, m) for m in g["members"])
+    return '%s"%s"' % (prefix, col) if col in cols else None
+
+
+def show_columns(wanted, cols, groups_map, core):
+    """The extra columns a result row should carry: the caller's list, minus
+    anything already on the row, minus anything this index does not have."""
+    out = []
+    for col in wanted:
+        col = col.strip()
+        if not col or col in core or col in out:
+            continue
+        if value_sql(col, cols, groups_map) is None:
+            continue
+        out.append(col)
+        if len(out) >= SHOW_MAX:
+            break
+    return out
+
+
+def order_sql(order, cols, groups_map, prefix=""):
+    """ORDER BY for the play list. `game` walks the game in play order; `epa`
+    and `epa_asc` are the two the panel has always offered; anything else is
+    "<column>:desc" or "<column>:asc" for a column the user picked.
+
+    NULLs sort last in both directions. A play with no air EPA is not the
+    smallest air EPA, and floating it to the top of "Air EPA low" would bury
+    the answer under every play the measure does not apply to."""
+    fixed = {"epa": ' ORDER BY %sepa DESC' % prefix,
+             "epa_asc": ' ORDER BY %sepa ASC' % prefix}
+    if order in fixed:
+        return fixed[order]
+    col, _, direction = (order or "").rpartition(":")
+    expr = value_sql(col, cols, groups_map, prefix) if col else None
+    if expr is None or direction not in ("asc", "desc"):
+        return ' ORDER BY %sold_game_id, %splay_id' % (prefix, prefix)
+    return " ORDER BY %s IS NULL, %s %s" % (expr, expr, direction.upper())
+
+
 # ---------------------------------------------------------------- late data --
 # Not every column arrives with the play. nflverse's play-by-play lands within
 # hours of a game, but FTN's charting layer is charted BY HAND: nflreadr
