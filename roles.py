@@ -364,3 +364,50 @@ def group_sql(members, op, val, coltype):
         return "(" + nomatch + " AND " + someset + ")", [val] * len(qs)
     frag = " OR ".join("%s %s ?" % (q, OPS[op]) for q in qs)
     return "(" + frag + ")", [val] * len(qs)
+
+
+
+# ---------------------------------------------------------------- late data --
+# Not every column arrives with the play. nflverse's play-by-play lands within
+# hours of a game, but FTN's charting layer is charted BY HAND: nflreadr
+# documents it as "charted within 48 hours following each game"
+# (nflverse/nflreadr, R/load_ftn_charting.R), and nflverse polls FTN every six
+# hours through the season (nflverse/nflverse-ftn, update_ftn.yaml), so it
+# appears within hours of FTN finishing. Sunday's games are therefore charted by
+# Tuesday and Monday night's by Wednesday -- which is when a *week* is complete.
+#
+# This matters because the failure is silent. Ask for "Play action: Yes" on
+# Monday and the newest week returns nothing, which reads as an honest zero or a
+# broken index rather than "not charted yet". The panel says so instead.
+#
+# `marker` is a column that is non-NULL on exactly the plays the source charted
+# (FTN fills every field on the plays it charts, and none on the ones it skips),
+# so coverage is measured against the index rather than assumed from a calendar.
+# `cols` must stay in step with FTN_COLS in build_index.py; tests/test_mirror.py
+# fails if it drifts.
+LATE_SOURCES = [{
+    "key": "ftn",
+    "label": "FTN charting",
+    "weekday": "Wednesday",
+    "note": "FTN charts each game within about 48 hours, so a week is usually "
+            "complete by Wednesday.",
+    "marker": "qb_location",
+    "cols": ["starting_hash", "qb_location", "n_offense_backfield", "n_defense_box",
+             "is_no_huddle", "is_motion", "is_play_action", "is_screen_pass", "is_rpo",
+             "is_trick_play", "is_qb_out_of_pocket", "is_interception_worthy",
+             "is_throw_away", "read_thrown", "is_catchable_ball", "is_contested_ball",
+             "is_created_reception", "is_drop", "is_qb_sneak", "n_blitzers",
+             "n_pass_rushers", "is_qb_fault_sack"],
+}]
+
+
+def late_sources(schema_cols):
+    """The late sources this index actually carries, marker column and all."""
+    return [s for s in LATE_SOURCES
+            if s["marker"] in schema_cols and any(c in schema_cols for c in s["cols"])]
+
+
+def late_columns(schema_cols):
+    """column -> source key, for every late column present in this index."""
+    return {c: s["key"] for s in late_sources(schema_cols)
+            for c in s["cols"] if c in schema_cols}

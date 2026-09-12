@@ -186,6 +186,47 @@ def redundant_flags(con, cols):
     return _redundant
 
 
+def late_coverage(con, cols):
+    """How far each late-arriving source has actually been charted.
+
+    The cheap version of the question. Rather than scanning the whole table for
+    a coverage histogram (90 ms a season, paid on every panel load), this asks
+    only about the frontier -- the newest week the index carries -- and counts
+    GAMES, not plays, because that is the unit the source charts and the unit a
+    gap shows up in: "14 of 16 games" is a partial week, where "97% of plays" is
+    what a *complete* week looks like (FTN skips kneels and spikes).
+
+    Every query here is answered from idx_sw, so the whole thing is ~35 ms
+    regardless of how many seasons have stacked up. Mirrors db.js.
+    """
+    out = []
+    season = con.execute("SELECT MAX(season) FROM plays").fetchone()[0]
+    if season is None or "game_id" not in cols:
+        return out
+    week = con.execute("SELECT MAX(week) FROM plays WHERE season=?",
+                       (season,)).fetchone()[0]
+    for s in roles_mod.late_sources(cols):
+        m = s["marker"]
+        games, charted = con.execute(
+            'SELECT COUNT(DISTINCT game_id), COUNT(DISTINCT CASE WHEN "%s" '
+            'IS NOT NULL THEN game_id END) FROM plays WHERE season=? AND week=?'
+            % m, (season, week)).fetchone()
+        row = dict(s, season=season, week=week, games=games, charted=charted)
+        if not charted:
+            # nothing at the frontier: say where the data does stop, so the gap
+            # reads as a lag with a known edge rather than a missing column.
+            # MAX(season) walks idx_sw backwards and stops at the first charted
+            # row, so it costs nothing even though the marker is unindexed.
+            cs = con.execute('SELECT MAX(season) FROM plays WHERE "%s" IS NOT NULL'
+                             % m).fetchone()[0]
+            if cs is not None:
+                row["through"] = {"season": cs, "week": con.execute(
+                    'SELECT MAX(week) FROM plays WHERE season=? AND "%s" IS NOT NULL'
+                    % m, (cs,)).fetchone()[0]}
+        out.append(row)
+    return out
+
+
 def groups(cols):
     """key -> merged column, built once; the schema does not change under us."""
     global _groups
@@ -519,6 +560,9 @@ class H(BaseHTTPRequestHandler):
                     "seasons": [r[0] for r in con.execute("SELECT DISTINCT season FROM plays ORDER BY 1")],
                     "weeks": [r[0] for r in con.execute("SELECT DISTINCT week FROM plays ORDER BY week")],
                     "teams": [r[0] for r in con.execute("SELECT DISTINCT posteam FROM plays WHERE posteam IS NOT NULL ORDER BY 1")],
+                    # columns that arrive days after the play, and how far each
+                    # one has got -- the panel flags them where they are picked
+                    "late": late_coverage(con, schema(con)),
                 }))
         except Exception as e:
             return self._send(500, json.dumps({"error": str(e)}))

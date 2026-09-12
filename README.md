@@ -291,6 +291,7 @@ charting columns provided by FTN Data via nflverse; the field definitions in
 
     python3 tests/test_mirror.py      # the two-backend mirror rule
     node tests/test_throttle.mjs      # the NFL request gate and selection coalescing
+    node tests/test_late.mjs          # the "not charted yet" notices
 
 `test_mirror.py` runs `server.py`/`roles.py` and the shipped `extension/db.js`
 over `data/plays.db` and diffs every endpoint. Exits non-zero on any
@@ -298,3 +299,6 @@ divergence. Build the index first (`python3 build_index.py 2025`).
 `test_throttle.mjs` cuts the request gate out of `panel.js` and checks that a
 burst of selections is serialised, spaced, coalesced, and that a 401/403 ends
 NFL traffic for the page.
+`test_late.mjs` cuts the late-data notices out of `panel.js` and drives them
+through every state FTN's charting can be in — complete, half a week in, a week
+with nothing yet, and a selection that does not reach the gap at all.

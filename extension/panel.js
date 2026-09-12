@@ -817,6 +817,10 @@
   #all22 .dval b{color:#b1924f;font-weight:600;cursor:pointer}
   #all22 .dval b:hover{color:#c9a961;text-decoration:underline}
   #all22 .dn{color:#8f8f8f}
+  /* a column that has not been charted for the weeks on screen: muted when it
+     is only the cadence worth knowing, amber when data is actually missing */
+  #all22 .late{flex:0 0 100%;color:#9a9a9a;font-size:10.5px;line-height:1.4;margin-top:4px}
+  #all22 .late.warn{color:#e0a86b}
   #all22 .dempty{padding:16px 14px;color:#bdbdbd;font-size:12px}
   #all22 .dfoot{padding:8px 14px;border-top:1px solid #282828;background:#191919;
     color:#a3a3a3;font-size:10.5px;line-height:1.4}
@@ -1442,6 +1446,9 @@
     if (!list) return;           // run() can fire before the dictionary exists
     list.querySelectorAll(".dent").forEach(el => {
       el.querySelector(".dval").innerHTML = '<span class="dn">…</span>';
+      // the lag note names the weeks the new scope is missing, so it moves too
+      const n = lateNote(el.dataset.k), late = el.querySelector(".late");
+      if (late && n) { late.textContent = n.text; late.classList.toggle("warn", !!n.warn); }
     });
     // Re-observing makes the observer report whatever is on screen right now,
     // so only those rows are profiled again. Requeuing all 275 here would cost
@@ -1500,6 +1507,7 @@
             : c.type === "TEXT" ? "text" : "number"}${
             GROUPS[c.key] ? ` · ${GROUPS[c.key].members.length} cols` : ""}</span></div>
         <div class="ddesc">${esc(DESCRIBE[c.key] || "")}</div>
+        ${lateHtml(c.key)}
         <div class="dval"><span class="dn">…</span></div>
       </div>`).join("");
 
@@ -1554,6 +1562,50 @@
   q("#all22-w").onclick = () => setWide(!p.classList.contains("wide"));
   q("#all22-tray").onclick = () => setWide(false);
 
+  /* ---------------- columns that arrive after the play ----------------
+     nflverse's play-by-play lands within hours of a game. FTN's charting layer
+     is charted by hand and reaches the index days later, and the silence is the
+     trap: "Play action: Yes" over the newest week returns nothing, which reads
+     as "it never happened" rather than "nobody has charted it yet". So every
+     place one of these columns is picked -- the filter hint, the dictionary,
+     the empty result -- says where the charting stops and when the next drop
+     is due. The backend measures the coverage; the weekday is the source's own
+     published cadence (nflreadr: charted within 48 hours of each game, so a
+     week is complete once Monday night is in). */
+  const LATEOF = new Map();        // column -> /api/meta's entry for its source
+
+  function setLate(late) {
+    LATEOF.clear();
+    (late || []).forEach(s => s.cols.forEach(c => LATEOF.set(c, s)));
+  }
+
+  /* Does what the user is looking at reach the weeks the source has not charted?
+     Filtering 2025 while 2026 waits on FTN is not worth a warning -- 2025 is
+     complete, and a banner that cries on every view is one nobody reads. */
+  function scopeReachesGap(s) {
+    const season = Number(q("#a-season").value);
+    if (!season) return true;                  // every season, the gap included
+    if (season !== s.season) return season > s.season;
+    const week = Number(q("#a-week").value);   // "Any" is ""  ->  0
+    return !week || week >= s.week;
+  }
+
+  // null for a column that arrives with the play, which is nearly all of them
+  function lateNote(col) {
+    const s = LATEOF.get(col);
+    if (!s) return null;
+    const at = `${s.season} week ${s.week}`;
+    if (s.games && s.charted >= s.games)
+      return { text: `${s.label} · complete through ${at} · new weeks usually land ${s.weekday}` };
+    if (!scopeReachesGap(s))
+      return { text: `${s.label} · charted by hand · new weeks usually land ${s.weekday}` };
+    if (s.charted)
+      return { warn: true,
+               text: `${s.label} has ${s.charted} of ${s.games} games in ${at} so far. ${s.note}` };
+    return { warn: true, text: `Not charted yet for ${at}` +
+      (s.through ? ` — ${s.label} stops at ${s.through.season} week ${s.through.week}. `
+                 : `. `) + s.note };
+  }
   backend("/api/meta").then(m => {
     // loading is done; replace whatever progress text was left on screen
     const st = q("#all22-st");
@@ -1563,6 +1615,7 @@
     m.seasons.forEach(s => q("#a-season").insertAdjacentHTML("beforeend", `<option>${s}</option>`));
     m.weeks.forEach(w => q("#a-week").insertAdjacentHTML("beforeend", `<option>${w}</option>`));
     m.teams.forEach(t => q("#a-team").insertAdjacentHTML("beforeend", `<option>${t}</option>`));
+    setLate(m.late);
     q("#a-season").value = m.seasons[m.seasons.length - 1];
   }).catch(e => { q("#all22-st").innerHTML = `<span style="color:#e0736b">${esc(e.message)}</span>`; });
 
@@ -1700,22 +1753,30 @@
     });
   }
 
+  // A late column's note goes on its own line: it is about the selection, not
+  // about the column, and it has to survive the hint being rebuilt around it.
+  const lateHtml = col => {
+    const n = lateNote(col);
+    return n ? `<div class="late${n.warn ? " warn" : ""}">${esc(n.text)}</div>` : "";
+  };
+
   // show what a column actually contains, so you are not guessing
   async function hint(col) {
     const h = q("#a-hint");
     if (!col || !COLTYPE[col]) { h.textContent = ""; return; }
     const name = esc(humanCol(col));
     const desc = DESCRIBE[col] ? ` <span class="dn">— ${esc(oneLine(DESCRIBE[col]))}</span>` : "";
-    h.innerHTML = `<span class="m">${name}${desc} · loading…</span>`;
+    const late = lateHtml(col);
+    h.innerHTML = `<span class="m">${name}${desc} · loading…</span>` + late;
     try {
       const d = await backend(
         `/api/values?${scopeParams()}&col=${encodeURIComponent(col)}`);
       h.innerHTML = `<span class="m">${name}${
         d.desc ? ` <span class="dn">— ${esc(oneLine(d.desc))}</span>` : desc} · </span>` +
-        `<span class="dval">${profileHtml(d)}</span>`;
+        `<span class="dval">${profileHtml(d)}</span>` + late;
       wireValueClicks(h, col);
     } catch {
-      h.innerHTML = `<span class="m">${name}${desc}</span>`;
+      h.innerHTML = `<span class="m">${name}${desc}</span>` + late;
     }
   }
   let colTimer = null;
@@ -1876,8 +1937,12 @@
       if (rows.error) { q("#all22-st").innerHTML = `<span style="color:#e0736b">${esc(rows.error)}</span>`; return; }
       if (!rows.length) {
         const sus = extra.filter(f => COLTYPE[f.col] === "TEXT" && NUMOPS.includes(f.op));
+        // the whole point of tracking the lag: an empty result on a charting
+        // column is usually the charting, not the football
+        const late = extra.map(f => lateNote(f.col)).find(n => n && n.warn);
         q("#all22-st").innerHTML = "0 plays" + (sus.length
           ? ` — <span style="color:#e0a86b">${esc(humanCol(sus[0].col))} is text; “${esc(OPSYM[sus[0].op] || sus[0].op)}” can’t match</span>`
+          : late ? ` — <span style="color:#e0a86b">${esc(late.text)}</span>`
           : " — try removing a filter");
       } else {
         q("#all22-st").textContent = rows.length + " plays";

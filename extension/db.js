@@ -188,6 +188,78 @@ function redundantFlags() {
   return _redundant;
 }
 
+/* ---------- columns that arrive after the play ----------
+   nflverse's play-by-play lands within hours of a game, but FTN's charting
+   layer is charted BY HAND: nflreadr documents it as "charted within 48 hours
+   following each game", and nflverse polls FTN every six hours through the
+   season, so it appears within hours of FTN finishing. Sunday's games are
+   charted by Tuesday and Monday night's by Wednesday -- which is when a *week*
+   is complete.
+
+   The failure without this is silent: ask for "Play action: Yes" on Monday and
+   the newest week returns nothing, which reads as an honest zero or a broken
+   index rather than "not charted yet". Mirrors roles.py -- keep in step. */
+const LATE_SOURCES = [{
+  key: "ftn",
+  label: "FTN charting",
+  weekday: "Wednesday",
+  note: "FTN charts each game within about 48 hours, so a week is usually " +
+        "complete by Wednesday.",
+  // non-NULL on exactly the plays FTN charted: it fills every field on a play
+  // it charts and none on a play it skips, so coverage is measured, not assumed
+  marker: "qb_location",
+  // must stay in step with FTN_COLS in build_index.py
+  cols: ["starting_hash", "qb_location", "n_offense_backfield", "n_defense_box",
+         "is_no_huddle", "is_motion", "is_play_action", "is_screen_pass", "is_rpo",
+         "is_trick_play", "is_qb_out_of_pocket", "is_interception_worthy",
+         "is_throw_away", "read_thrown", "is_catchable_ball", "is_contested_ball",
+         "is_created_reception", "is_drop", "is_qb_sneak", "n_blitzers",
+         "n_pass_rushers", "is_qb_fault_sack"],
+}];
+
+function lateSources() {
+  const c = cols();
+  return LATE_SOURCES.filter(s => s.marker in c && s.cols.some(x => x in c));
+}
+
+/* How far each late source has actually been charted -- the cheap version of
+   the question. Rather than scanning the whole table for a coverage histogram
+   (90 ms a season, paid on every panel load), this asks only about the frontier
+   -- the newest week the index carries -- and counts GAMES, not plays, because
+   that is the unit the source charts and the unit a gap shows up in: "14 of 16
+   games" is a partial week, where "97% of plays" is what a *complete* week
+   looks like (FTN skips kneels and spikes).
+
+   Every query here is answered from idx_sw, so the whole thing is ~35 ms
+   regardless of how many seasons have stacked up. Mirrors server.py. */
+function lateCoverage() {
+  const out = [], c = cols();
+  const season = db.selectArrays("SELECT MAX(season) FROM plays")[0][0];
+  if (season == null || !("game_id" in c)) return out;
+  const week = db.selectArrays(
+    "SELECT MAX(week) FROM plays WHERE season=?", [season])[0][0];
+  for (const s of lateSources()) {
+    const [games, charted] = db.selectArrays(
+      `SELECT COUNT(DISTINCT game_id), COUNT(DISTINCT CASE WHEN "${s.marker}"` +
+      " IS NOT NULL THEN game_id END) FROM plays WHERE season=? AND week=?",
+      [season, week])[0];
+    const row = Object.assign({}, s, { season, week, games, charted });
+    if (!charted) {
+      // nothing at the frontier: say where the data does stop, so the gap reads
+      // as a lag with a known edge rather than a missing column. MAX(season)
+      // walks idx_sw backwards and stops at the first charted row, so it costs
+      // nothing even though the marker is unindexed.
+      const cs = db.selectArrays(
+        `SELECT MAX(season) FROM plays WHERE "${s.marker}" IS NOT NULL`)[0][0];
+      if (cs != null) row.through = { season: cs, week: db.selectArrays(
+        `SELECT MAX(week) FROM plays WHERE season=? AND "${s.marker}" IS NOT NULL`,
+        [cs])[0][0] };
+    }
+    out.push(row);
+  }
+  return out;
+}
+
 let _groups = null;
 function groups() {
   if (_groups) return _groups;
@@ -618,6 +690,9 @@ async function handle(op, payload) {
       seasons: col1("SELECT DISTINCT season FROM plays ORDER BY 1"),
       weeks: col1("SELECT DISTINCT week FROM plays ORDER BY week"),
       teams: col1("SELECT DISTINCT posteam FROM plays WHERE posteam IS NOT NULL ORDER BY 1"),
+      // columns that arrive days after the play, and how far each one has got
+      // -- the panel flags them where they are picked
+      late: lateCoverage(),
     };
   }
   if (op === "columns") {

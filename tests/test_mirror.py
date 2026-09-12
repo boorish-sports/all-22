@@ -257,6 +257,18 @@ def lint():
         r = subprocess.run(["node", "--check", os.path.join(ROOT, "extension", f)], capture_output=True)
         if r.returncode:
             fails.append("node --check %s: %s" % (f, r.stderr.decode().strip()))
+    # LATE_SOURCES names FTN's columns so the panel can flag them; build_index.py
+    # decides which ones the index actually carries. A column added to one and
+    # not the other is filterable but never flagged, or flagged but absent.
+    import build_index
+    for late in roles.LATE_SOURCES:
+        if late["key"] == "ftn" and late["cols"] != build_index.FTN_COLS:
+            fails.append("roles.LATE_SOURCES['ftn'] has drifted from "
+                         "build_index.FTN_COLS")
+        if late["marker"] not in late["cols"]:
+            fails.append("%s: marker %r is not one of its own columns"
+                         % (late["key"], late["marker"]))
+
     src = open(os.path.join(ROOT, "extension", "panel.js")).read()
     # the argument that keeps the project alive: every NFL request goes through secured()
     if src.count("$api.$get(") != 1 or "function secured(" not in src:

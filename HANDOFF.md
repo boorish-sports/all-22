@@ -64,6 +64,35 @@ Extension package is ~1.6 MB. The 61 MB index is downloaded at runtime from
 `github.com/boorish-sports/all-22-index/releases/latest` (see `DEFAULT_MANIFEST`
 in `db.js`) and cached in IndexedDB.
 
+### Columns that arrive after the play
+
+nflverse's play-by-play lands within hours of a game. **FTN's charting layer
+does not** — it is charted by hand, `nflreadr` documents it as "charted within
+48 hours following each game", and nflverse polls FTN every six hours through
+the season (`nflverse/nflverse-ftn`, `update_ftn.yaml`). Sunday's games are
+therefore charted by Tuesday and Monday night's by Wednesday, which is when a
+*week* becomes complete.
+
+Left unsaid, that lag is a silent wrong answer: "Play action: Yes" over the
+newest week returns nothing, and `0 plays` reads as an honest zero. So
+`roles.LATE_SOURCES` (mirrored in `db.js`) names each late source, the columns
+it supplies, and the weekday its drop is due; `/api/meta` measures how far it
+has actually got — games charted out of games played in the newest week — and
+`panel.js` says so wherever one of those columns is picked: the filter hint, the
+dictionary row, and the `0 plays` line. The notice only turns amber when the
+*selected* season/week reaches the uncharted weeks; on 2025 it stays a muted
+line about the cadence.
+
+The column list in `LATE_SOURCES` must stay in step with `FTN_COLS` in
+`build_index.py`; `tests/test_mirror.py` fails if it drifts, and
+`tests/test_late.mjs` drives the wording through every coverage state.
+
+Not covered yet: the player facet rows. "No huddle" under a player is
+`is_no_huddle`, an FTN column, but the facets come back as opaque sub-filter
+keys with no column behind them, so a facet count of 0 on the newest week is
+still unexplained. Worth fixing by having `/api/player_subfilters` return the
+source key per row.
+
 ### The mirror rule — read this twice
 
 **`server.py` + `roles.py` and `extension/db.js` are two hand-written
