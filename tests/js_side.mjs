@@ -26,7 +26,9 @@ src = src.replace(importLine, "const sqlite3InitModule = null;");
 src += `
 export { handle, groups, groupSql, likePattern, binaryColumns, redundantFlags,
          profile, search, cols, baseFilters };
-export function __setDb(h) { db = h; }
+// checkedAt = Infinity: the injected handle is the index, so the hourly
+// manifest recheck in ensureDb must never fire here
+export function __setDb(h) { db = h; checkedAt = Infinity; }
 `;
 const dir = mkdtempSync(join(tmpdir(), "all22-"));
 const modPath = join(dir, "db.test.mjs");

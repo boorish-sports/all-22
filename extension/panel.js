@@ -26,9 +26,17 @@
     if (ev.source !== window || !m) return;
     if (m.__all22 === "progress") {
       const st = document.getElementById("all22-st");
-      if (!st || st.dataset.loaded) return;
+      if (!st) return;
+      if (m.stage === "refreshed") {
+        // the offscreen document swapped in a newer index; the dropdowns were
+        // filled from the old one and may be missing this week
+        loadMeta().then(() => { st.textContent = "play index updated — " + m.rows + " plays"; })
+                  .catch(() => {});
+        return;
+      }
+      if (st.dataset.loaded) return;
       st.textContent = {
-        downloading: "downloading play index (" + Math.round((m.bytes || 0) / 1e6) + " MB, one time)…",
+        downloading: "downloading play index (" + Math.round((m.bytes || 0) / 1e6) + " MB)…",
         decompressing: "unpacking index…",
         opening: "opening database…",
       }[m.stage] || "loading…";
@@ -1563,6 +1571,24 @@
   q("#all22-w").onclick = () => setWide(!p.classList.contains("wide"));
   q("#all22-tray").onclick = () => setWide(false);
 
+  // Fills the season/week/team menus from the index. Runs once at load and
+  // again whenever the offscreen document swaps in a newer index, so it only
+  // ever adds options that are not there yet -- the user's selection stays.
+  function loadMeta() {
+    return backend("/api/meta").then(m => {
+      const add = (sel, vals) => {
+        const have = new Set([...q(sel).options].map(o => o.value));
+        vals.forEach(v => { if (!have.has(String(v)))
+          q(sel).insertAdjacentHTML("beforeend", `<option>${v}</option>`); });
+      };
+      add("#a-season", m.seasons);
+      add("#a-week", m.weeks);
+      add("#a-team", m.teams);
+      setLate(m.late);
+      return m;
+    });
+  }
+
   /* ---------------- columns that arrive after the play ----------------
      nflverse's play-by-play lands within hours of a game. FTN's charting layer
      is charted by hand and reaches the index days later, and the silence is the
@@ -1607,16 +1633,12 @@
       (s.through ? ` — ${s.label} stops at ${s.through.season} week ${s.through.week}. `
                  : `. `) + s.note };
   }
-  backend("/api/meta").then(m => {
+  loadMeta().then(m => {
     // loading is done; replace whatever progress text was left on screen
     const st = q("#all22-st");
     st.dataset.loaded = "1";
     st.textContent =
       m.columns + " pbp columns are filterable — tacklers, fumbles, EPA, CPOE, personnel…";
-    m.seasons.forEach(s => q("#a-season").insertAdjacentHTML("beforeend", `<option>${s}</option>`));
-    m.weeks.forEach(w => q("#a-week").insertAdjacentHTML("beforeend", `<option>${w}</option>`));
-    m.teams.forEach(t => q("#a-team").insertAdjacentHTML("beforeend", `<option>${t}</option>`));
-    setLate(m.late);
     q("#a-season").value = m.seasons[m.seasons.length - 1];
   }).catch(e => { q("#all22-st").innerHTML = `<span style="color:#e0736b">${esc(e.message)}</span>`; });
 
