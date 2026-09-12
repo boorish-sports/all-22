@@ -8,3 +8,6 @@ __pycache__/
 
 # packaged extension zips (build_zip.sh)
 dist/
+
+# Claude Code app config (launch.json for the wasm test page, local settings)
+.claude/

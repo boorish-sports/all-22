@@ -257,54 +257,124 @@ def main(seasons, full=False):
     publish(seasons)
 
 
-def publish(seasons):
-    """Emit the gzipped artifact plus a manifest the extension polls."""
-    out = os.path.join(DATA, "dist")
-    os.makedirs(out, exist_ok=True)
-    name = "plays_%s.db.gz" % "-".join(str(s) for s in seasons)
-    gz = os.path.join(out, name)
+def gzip_file(path, gz):
     # mtime=0: gzip stamps the build time into its header by default, which would
-    # change the sha256 on every run and make the "publish only when changed"
-    # check fire daily -- forcing every consumer to re-download an identical file.
-    with open(DB, "rb") as f, open(gz, "wb") as raw:
+    # change the sha256 on every run and make "publish only when changed" fire
+    # daily -- forcing every consumer to re-download an identical file.
+    with open(path, "rb") as f, open(gz, "wb") as raw:
         with gzip.GzipFile(filename="", mode="wb", compresslevel=9, fileobj=raw, mtime=0) as g:
             shutil.copyfileobj(f, g)
-    h = hashlib.sha256(open(gz, "rb").read()).hexdigest()
+    return hashlib.sha256(open(gz, "rb").read()).hexdigest()
 
-    # The gzip/SQLite bytes depend on the zlib and SQLite builds, so the same
-    # data hashes differently on a different Python. Fingerprint the SOURCE
-    # files instead: that is what "did the data change" actually means, and it
-    # survives runner-image updates that would otherwise force a pointless
-    # 15 MB re-download for every consumer.
-    src = hashlib.sha256()
-    # the artifact is a function of the sources AND of this script: retyping a
-    # column changes every consumer's index while leaving nflverse's files
-    # untouched, and without this the scheduled build would report "unchanged"
-    # and never publish the fix
-    with open(os.path.abspath(__file__), "rb") as f:
-        src.update(b"build_index.py")
-        src.update(f.read())
-    for path in sorted(p for p in SOURCES if os.path.exists(p)):
-        src.update(os.path.basename(path).encode())
-        with open(path, "rb") as f:
-            for chunk in iter(lambda: f.read(1 << 20), b""):
-                src.update(chunk)
-    content = src.hexdigest()
+
+def schema_ddl(con):
+    """(table, CREATE statement) for every table and index, in a fixed order."""
+    return con.execute(
+        "SELECT tbl_name, sql FROM sqlite_master WHERE type IN ('table','index')"
+        " AND sql IS NOT NULL ORDER BY type DESC, name").fetchall()
+
+
+def content_id(con, schema_hash, table, where, args, order):
+    """Fingerprint of what a part HOLDS, independent of the bytes it is stored in.
+
+    The gzip/SQLite bytes depend on the zlib and SQLite builds, so the same rows
+    hash differently on a different runner, and a hash of the source files is no
+    use once a season is split by week (nflverse ships one file per season).
+    The rows themselves, in a fixed order, are what "did this part change"
+    actually means. The schema goes in too: retyping a column changes every
+    consumer's index while leaving the rows untouched.
+    """
+    h = hashlib.sha256(schema_hash.encode())
+    cur = con.execute('SELECT * FROM "%s"%s ORDER BY %s' % (table, where, order), args)
+    for row in cur:
+        h.update(repr(row).encode())
+        h.update(b"\n")
+    return h.hexdigest()
+
+
+def publish(seasons):
+    """Emit the index as PARTS plus a manifest the extension polls.
+
+    One whole-season file per completed season, one file per week of the
+    newest season, and one for the players table. Consumers keep a merged copy
+    and fetch only the parts whose content id moved: a completed season is
+    downloaded once and never again, and a mid-week revision costs one week's
+    file rather than the whole index. Every part carries the same schema, so
+    the client can copy rows between them with a plain INSERT ... SELECT.
+    """
+    out = os.path.join(DATA, "dist")
+    os.makedirs(out, exist_ok=True)
+    for old in os.listdir(out):
+        if old.endswith(".db.gz"):
+            os.remove(os.path.join(out, old))
+
+    src = sqlite3.connect(DB)
+    ddl = schema_ddl(src)
+    schema = hashlib.sha256("\n".join(s for _, s in ddl).encode()).hexdigest()
+    ddl_for = lambda table: [s for t, s in ddl if t == table]
+    present = [s for s in seasons
+               if src.execute("SELECT 1 FROM plays WHERE season=? LIMIT 1", (s,)).fetchone()]
+    specs = []           # (key, file, table, where, args, order, scope)
+    for s in present[:-1]:
+        specs.append(("%d" % s, "plays_%d.db.gz" % s, "plays", " WHERE season=?", (s,),
+                      "game_id, play_id", {"season": s}))
+    if present:
+        s = present[-1]
+        for (w,) in src.execute("SELECT DISTINCT week FROM plays WHERE season=? ORDER BY 1", (s,)):
+            specs.append(("%d-w%02d" % (s, w), "plays_%d_w%02d.db.gz" % (s, w), "plays",
+                          " WHERE season=? AND week=?", (s, w), "game_id, play_id",
+                          {"season": s, "week": w}))
+    specs.append(("players", "players.db.gz", "players", "", (), "gsis_id", {}))
+    src.close()
+
+    parts, total = [], 0
+    tmp = os.path.join(out, "part.db")
+    for key, name, table, where, args, order, scope in specs:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+        con = sqlite3.connect(tmp, isolation_level=None)
+        con.execute("PRAGMA journal_mode=OFF")
+        con.execute("ATTACH ? AS src", (DB,))
+        for s in ddl_for(table):
+            con.execute(s)
+        if table == "players":
+            # the extension fills games on demand; it rides with the smallest part
+            for s in ddl_for("games"):
+                con.execute(s)
+        con.execute('INSERT INTO "%s" SELECT * FROM src."%s"%s' % (table, table, where), args)
+        rows = con.execute('SELECT COUNT(*) FROM "%s"' % table).fetchone()[0]
+        con.execute("DETACH src")
+        con.execute("VACUUM")
+        con.close()
+        gz = os.path.join(out, name)
+        sha = gzip_file(tmp, gz)
+        con = sqlite3.connect(DB)
+        cid = content_id(con, schema, table, where, args, order)
+        con.close()
+        part = {"key": key, "file": name, "table": table, "sha256": sha, "id": cid,
+                "bytes": os.path.getsize(gz), "rows": rows}
+        part.update(scope)
+        parts.append(part)
+        total += part["bytes"]
+        print("  part %-10s %-24s %6d rows %6.2f MB gz  id %s…" % (key, name, rows, part["bytes"] / 1e6, cid[:10]))
+    os.remove(tmp)
+
+    content = hashlib.sha256("\n".join(p["key"] + ":" + p["id"] for p in parts).encode()).hexdigest()
     con = sqlite3.connect(DB)
     manifest = {
-        "file": name,
-        "sha256": h,            # of the .db.gz, for the client to verify
-        "content_hash": content,  # of the inputs, for change detection
-        "bytes": os.path.getsize(gz),
+        "version": 2,
+        "content_hash": content,  # of every part's id, for change detection
+        "schema": schema,         # of the DDL; a change here rebuilds every consumer's index
+        "bytes": total,
         "rows": con.execute("SELECT COUNT(*) FROM plays").fetchone()[0],
         "seasons": [int(s) for s in seasons],
         "columns": len(con.execute("SELECT * FROM plays LIMIT 1").description),
+        "parts": parts,
     }
     con.close()
     with open(os.path.join(out, "manifest.json"), "w") as f:
         json.dump(manifest, f, indent=2)
-    print("  artifact: %s (%.1f MB gz)  sha256 %s…  content %s…"
-          % (name, manifest["bytes"] / 1e6, h[:10], content[:10]))
+    print("  manifest: %d parts, %.1f MB gz in all, content %s…" % (len(parts), total / 1e6, content[:10]))
 
 
 if __name__ == "__main__":

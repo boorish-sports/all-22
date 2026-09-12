@@ -1,0 +1,50 @@
+<!doctype html>
+<title>db.js sync under the real sqlite-wasm</title>
+<!--
+  The Node test (tests/test_sync.py) stands node:sqlite in for sqlite-wasm.
+  This page runs the SHIPPED db.js against the real wasm build, in a browser,
+  with a real IndexedDB, so sqlite3_deserialize into an attached schema, the
+  RESIZEABLE flag, and sqlite3_js_db_export are exercised for real.
+
+    python3 -m http.server 8731          # from the repo root
+    open http://127.0.0.1:8731/tests/wasm_sync.html?m=/data/dist/manifest.json,/data/synctest/d2/manifest.json
+
+  Each manifest in ?m= is loaded in turn: the first as a cold start, the rest
+  through the in-session recheck. Timings and the rows per week are printed.
+-->
+<pre id="out">loading…</pre>
+<script type="module">
+const out = document.getElementById("out");
+const log = s => { out.textContent += "\n" + s; console.log(s); };
+out.textContent = "";
+window.chrome = { runtime: { onMessage: { addListener() {} },
+  sendMessage: async m => { if (m.all22 === "progress") log("  progress: " + m.stage + (m.bytes ? " " + (m.bytes / 1e6).toFixed(1) + " MB" : "")); } } };
+let src = await (await fetch("/extension/db.js")).text();
+// a blob: module cannot resolve a relative import, so point it at the served copy
+src = src.replace('from "./vendor/sqlite/sqlite3.mjs"', 'from "' + location.origin + '/extension/vendor/sqlite/sqlite3.mjs"');
+src += `
+export { handle };
+export function __expire() { checkedAt = 0; }
+export function __db() { return db; }
+`;
+const m = await import(URL.createObjectURL(new Blob([src], { type: "text/javascript" })));
+const manifests = (new URLSearchParams(location.search).get("m") || "/data/dist/manifest.json").split(",");
+window.__done = false;
+for (const [i, murl] of manifests.entries()) {
+  log((i ? "recheck " : "cold start ") + murl);
+  if (i) m.__expire();
+  const t = performance.now();
+  try {
+    const meta = await m.handle("meta", { manifestUrl: location.origin + murl });
+    log("  " + (performance.now() - t).toFixed(0) + " ms: " + meta.count + " plays, seasons " + meta.seasons.join("/") + ", weeks " + meta.weeks.join(","));
+    const db = m.__db();
+    log("  by week: " + JSON.stringify(db.selectArrays("SELECT season, week, COUNT(*) FROM plays GROUP BY 1,2 ORDER BY 1,2")));
+    log("  revised: " + JSON.stringify(db.selectArrays("SELECT COUNT(*) FROM plays WHERE desc='revised'")[0]));
+    log("  players: " + JSON.stringify(db.selectArrays("SELECT COUNT(*) FROM players")[0]));
+  } catch (e) {
+    log("  ERROR " + (e && e.message || e));
+  }
+}
+window.__done = true;
+log("done");
+</script>

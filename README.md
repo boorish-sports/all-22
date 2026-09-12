@@ -309,6 +309,7 @@ charting columns provided by FTN Data via nflverse; the field definitions in
     node tests/test_throttle.mjs      # the NFL request gate and selection coalescing
     node tests/test_late.mjs          # the "not charted yet" notices
     node tests/test_sort.mjs          # row measures and the Sort menu
+    python3 tests/test_sync.py        # the per-part index sync in db.js
 
 `test_mirror.py` runs `server.py`/`roles.py` and the shipped `extension/db.js`
 over `data/plays.db` and diffs every endpoint. Exits non-zero on any
@@ -323,3 +324,7 @@ with nothing yet, and a selection that does not reach the gap at all.
 checks which filters earn a column on the row, which of them can be ranked by,
 and that redrawing the menu neither duplicates options nor loses the sort you
 were using.
+`test_sync.py` publishes a fixture index as parts and drives the shipped
+`db.js` through a first install, a revised week, a schema change and a season
+rollover, checking which files were fetched. `tests/wasm_sync.html` does the
+same against the real sqlite-wasm in a browser.

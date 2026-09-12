@@ -22,7 +22,7 @@ reference to the service the extension works with.
     All-22 Film Search adds a search panel to NFL Pro's film room (pro.nfl.com). Filter 337 columns of nflverse play-by-play — tacklers, pressures, EPA, CPOE, personnel, play action, motion, drops, throwaways, and every other field nflverse publishes — and the matching plays appear instantly. Click a play and its Sideline and Endzone angles play in NFL Pro's own video player, in a side panel, under your own subscription. Frame stepping, speed control and keyboard shortcuts are built in.
 
     HOW IT WORKS
-    • Search is entirely local. A SQLite index of public nflverse data (about 15 MB compressed) is downloaded from GitHub once and cached in your browser. Nothing you search leaves your machine.
+    • Search is entirely local. A SQLite index of public nflverse data (about 15 MB compressed) is downloaded from GitHub once and cached in your browser; in season, only the weeks that changed are fetched after that. Nothing you search leaves your machine.
     • The only requests made to NFL Pro are one clip lookup per play you click, using your own logged-in session — the same requests the film room makes when you click a play there. No prefetching, no bulk downloading.
     • No video is ever downloaded, copied, cached or re-hosted. Playback is NFL Pro's own DRM player.
 

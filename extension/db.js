@@ -5,8 +5,11 @@
  * on the extension's own origin with the extension's CSP, so wasm is allowed and
  * IndexedDB is ours rather than nfl.com's.
  *
- * The whole season is held in memory (~61 MB) via sqlite3_deserialize. That is
- * simpler and far faster than an OPFS/VFS setup, and the data is read-only.
+ * The whole index is held in memory (~61 MB) via sqlite3_deserialize. That is
+ * simpler and far faster than an OPFS/VFS setup, and the data is read-only
+ * between syncs. It arrives as parts -- a file per completed season, one per
+ * week of the newest season -- merged here and cached in IndexedDB, so an
+ * in-season update downloads the weeks that changed and nothing else.
  */
 import sqlite3InitModule from "./vendor/sqlite/sqlite3.mjs";
 
@@ -16,7 +19,18 @@ const IDB = { name: "all22", store: "blobs" };
 
 let sqlite3 = null, db = null, meta = null, loading = null;
 
+/* The offscreen document lives until Chrome quits, so without this an index
+   published on Friday morning would not be seen until the next restart. On the
+   first query after RECHECK_MS the manifest is fetched again (a few KB), the
+   parts whose content id moved are fetched, and the merged database is
+   swapped in place. */
+const RECHECK_MS = 60 * 60e3;
+let checkedAt = 0;
+
 /* ---------- tiny IndexedDB cache so we download once ---------- */
+/* Two keys: "index" holds the merged database (one serialized SQLite file),
+   "index:meta" records which part of the published index each of its rows
+   came from, so the next manifest can be diffed against it. */
 function idb() {
   return new Promise((res, rej) => {
     const r = indexedDB.open(IDB.name, 1);
@@ -25,20 +39,45 @@ function idb() {
     r.onerror = () => rej(r.error);
   });
 }
-async function cacheGet(k) {
-  const d = await idb();
+function req(r) {
   return new Promise((res, rej) => {
-    const t = d.transaction(IDB.store, "readonly").objectStore(IDB.store).get(k);
-    t.onsuccess = () => res(t.result); t.onerror = () => rej(t.error);
+    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
   });
 }
-async function cachePut(k, v) {
-  const d = await idb();
-  return new Promise((res, rej) => {
-    const t = d.transaction(IDB.store, "readwrite").objectStore(IDB.store).put(v, k);
-    t.onsuccess = () => res(); t.onerror = () => rej(t.error);
-  });
-}
+let cache = {
+  get: async k => req((await idb()).transaction(IDB.store, "readonly").objectStore(IDB.store).get(k)),
+  put: async (k, v) => req((await idb()).transaction(IDB.store, "readwrite").objectStore(IDB.store).put(v, k)),
+  keys: async () => req((await idb()).transaction(IDB.store, "readonly").objectStore(IDB.store).getAllKeys()),
+  del: async k => req((await idb()).transaction(IDB.store, "readwrite").objectStore(IDB.store).delete(k)),
+};
+
+/* The few things the sync needs from SQLite that are not SQL. Kept apart from
+   the SQL so the test harness can stand them in with node:sqlite. */
+let engine = {
+  // an in-memory database from a serialized file, or an empty one from null
+  open(bytes) {
+    const h = new sqlite3.oo1.DB();
+    if (bytes) {
+      const p = sqlite3.wasm.allocFromTypedArray(bytes);
+      // RESIZEABLE: parts get inserted into it, so it has to be able to grow
+      h.checkRc(sqlite3.capi.sqlite3_deserialize(
+        h.pointer, "main", p, bytes.length, bytes.length,
+        sqlite3.capi.SQLITE_DESERIALIZE_FREEONCLOSE |
+        sqlite3.capi.SQLITE_DESERIALIZE_RESIZEABLE));
+    }
+    return h;
+  },
+  // mount a serialized part as the schema `name` on an open handle
+  attach(h, name, bytes) {
+    h.exec("ATTACH ':memory:' AS " + name);
+    const p = sqlite3.wasm.allocFromTypedArray(bytes);
+    h.checkRc(sqlite3.capi.sqlite3_deserialize(
+      h.pointer, name, p, bytes.length, bytes.length,
+      sqlite3.capi.SQLITE_DESERIALIZE_FREEONCLOSE));
+  },
+  detach(h, name) { h.exec("DETACH " + name); },
+  export(h) { return sqlite3.capi.sqlite3_js_db_export(h.pointer); },
+};
 
 /* ---------- load ---------- */
 /* Offscreen documents do not get chrome.storage, so the dev override
@@ -59,48 +98,187 @@ async function grab(url, what) {
   return r;
 }
 
+/* The published index is PARTS: one file per completed season, one per week
+   of the newest season, one for the players table (build_index.publish). Each
+   carries a content id that moves only when its rows do. Diffing the manifest
+   against what the merged copy already holds says exactly which files to
+   fetch: a completed season is downloaded once and never again, and the
+   revision nflverse ships on a Tuesday costs one week's file, not the whole
+   index. A schema change (a column retyped) changes every id and the schema
+   hash, and the merged copy is rebuilt from scratch. */
+function planSync(man, have) {
+  man = normalise(man);
+  const rebuild = !have || have.schema !== man.schema;
+  const had = rebuild ? {} : have.parts || {};
+  return {
+    rebuild,
+    fetch: man.parts.filter(p => !had[p.key] || had[p.key].id !== p.id),
+    drop: Object.values(had).filter(c => !man.parts.some(p => p.key === c.key)),
+  };
+}
+
+/* The index used to be published as one file (manifest "version" 1: a single
+   `file` + `sha256`). Read as a single part that owns every table, so an
+   extension carrying this code works against either publication and the two
+   repos can ship in any order. There is nothing to diff inside one file, so
+   any change to it is a rebuild. */
+function normalise(man) {
+  if (Array.isArray(man.parts)) return man;
+  if (!man.file || !man.sha256) {
+    throw new Error("index manifest names neither parts nor a file");
+  }
+  return Object.assign({}, man, {
+    schema: "v1:" + (man.content_hash || man.sha256),
+    parts: [{ key: "index", file: man.file, sha256: man.sha256,
+              id: man.content_hash || man.sha256, bytes: man.bytes, rows: man.rows,
+              table: "*" }],
+  });
+}
+
+/* The rows a part is responsible for. A part replaces exactly this scope, so
+   a revised week overwrites the old copy of that week and nothing else. A
+   "*" part (the single-file publication) owns every table it carries. */
+const TABLES = { plays: 1, players: 1, games: 1 };
+function partTables(h, part) {
+  const names = part.table === "*"
+    ? h.selectArrays("SELECT name FROM part.sqlite_master WHERE type = 'table'").map(r => r[0])
+    : [part.table];
+  for (const t of names) {
+    if (!TABLES[t]) throw new Error("index part names an unknown table: " + t);
+  }
+  return names;
+}
+function scopeSql(table, part) {
+  const where = [], args = [];
+  if (part.season != null) { where.push("season = ?"); args.push(part.season); }
+  if (part.week != null) { where.push("week = ?"); args.push(part.week); }
+  return ['DELETE FROM main."' + table + '"' + (where.length ? " WHERE " + where.join(" AND ") : ""), args];
+}
+function deleteScope(h, tables, part) {
+  const present = new Set(
+    h.selectArrays("SELECT name FROM main.sqlite_master WHERE type = 'table'").map(r => r[0]));
+  for (const t of tables.filter(t => present.has(t))) {
+    const [del, args] = scopeSql(t, part);
+    h.exec({ sql: del, bind: args });
+  }
+}
+
+/* Copy one downloaded part into the merged database. */
+function applyPart(h, part, bytes) {
+  engine.attach(h, "part", bytes);
+  try {
+    // every part carries the full DDL of its tables; the first one in creates them
+    for (const r of h.selectObjects(
+        "SELECT sql FROM part.sqlite_master WHERE type IN ('table','index')" +
+        " AND sql IS NOT NULL ORDER BY type DESC, name")) {
+      h.exec(r.sql.replace(/^CREATE (TABLE|INDEX) /, "CREATE $1 IF NOT EXISTS "));
+    }
+    const tables = partTables(h, part);
+    deleteScope(h, tables, part);
+    for (const t of tables) {
+      h.exec('INSERT INTO main."' + t + '" SELECT * FROM part."' + t + '"');
+    }
+  } finally {
+    engine.detach(h, "part");
+  }
+}
+
+async function download(part, murl, progress) {
+  const url = new URL(part.file, murl).href;
+  const buf = await (await grab(url, "index part " + part.key)).arrayBuffer();
+  // the artifact comes off the public internet -- verify it before opening it
+  const got = [...new Uint8Array(await crypto.subtle.digest("SHA-256", buf))]
+    .map(b => b.toString(16).padStart(2, "0")).join("");
+  if (part.sha256 && got !== part.sha256) {
+    throw new Error("index part " + part.key + " failed checksum (expected " +
+                    part.sha256.slice(0, 12) + ", got " + got.slice(0, 12) + ")");
+  }
+  progress && progress({ stage: "decompressing" });
+  // the artifact is gzipped; the browser can inflate it natively
+  const ds = new DecompressionStream("gzip");
+  const inflated = new Response(new Blob([buf]).stream().pipeThrough(ds));
+  return new Uint8Array(await inflated.arrayBuffer());
+}
+
+function swapIn(h, man, progress) {
+  const old = db;
+  db = h;
+  meta = man;
+  if (old) {
+    // everything derived from the schema or the data was read off the old index
+    schema = null; _binary = null; _redundant = null; _groups = null; _shape.clear();
+    old.close();
+    progress && progress({ stage: "refreshed", rows: man.rows });
+  }
+}
+
+/* When the manifest cannot be reached on a cold start, the last merged copy is
+   opened as-is and the manifest is tried again sooner than the usual hour. */
+const RETRY_MS = 5 * 60e3;
+
 async function ensureDb(progress, override) {
-  if (db) return;
+  if (db && Date.now() - checkedAt < RECHECK_MS) return;
   if (loading) return loading;
   loading = (async () => {
     sqlite3 = sqlite3 || await sqlite3InitModule();
     const murl = override || DEFAULT_MANIFEST;
-    const man = await (await grab(murl, "index manifest")).json();
-    const key = "db:" + man.sha256;
-
-    let bytes = await cacheGet(key);
-    if (!bytes) {
-      progress && progress({ stage: "downloading", bytes: man.bytes });
-      const dbUrl = new URL(man.file, murl).href;
-      const buf = await (await grab(dbUrl, "index")).arrayBuffer();
-      // the artifact comes off the public internet -- verify it before opening it
-      const got = [...new Uint8Array(await crypto.subtle.digest("SHA-256", buf))]
-        .map(b => b.toString(16).padStart(2, "0")).join("");
-      if (man.sha256 && got !== man.sha256) {
-        throw new Error("index failed checksum (expected " + man.sha256.slice(0, 12) +
-                        ", got " + got.slice(0, 12) + ")");
-      }
-      progress && progress({ stage: "decompressing" });
-      // the artifact is gzipped; the browser can inflate it natively
-      const ds = new DecompressionStream("gzip");
-      const inflated = new Response(new Blob([buf]).stream().pipeThrough(ds));
-      bytes = new Uint8Array(await inflated.arrayBuffer());
-      await cachePut(key, bytes);
-      // drop any older copies
-      const d = await idb();
-      const os = d.transaction(IDB.store, "readwrite").objectStore(IDB.store);
-      os.getAllKeys().onsuccess = e => e.target.result
-        .filter(k => String(k).startsWith("db:") && k !== key)
-        .forEach(k => os.delete(k));
+    const have = await cache.get("index:meta");
+    let man;
+    try {
+      man = await (await grab(murl, "index manifest")).json();
+    } catch (e) {
+      // a recheck that cannot reach GitHub keeps the index we already have;
+      // a cold start falls back to the last copy, and only a first-ever load
+      // has nothing to fall back on
+      if (db) { checkedAt = Date.now(); return; }
+      const bytes = have && await cache.get("index");
+      if (!bytes) throw e;
+      checkedAt = Date.now() - RECHECK_MS + RETRY_MS;
+      swapIn(engine.open(bytes), have.manifest || {}, progress);
+      return;
     }
-    progress && progress({ stage: "opening" });
-    const p = sqlite3.wasm.allocFromTypedArray(bytes);
-    const h = new sqlite3.oo1.DB();
-    h.checkRc(sqlite3.capi.sqlite3_deserialize(
-      h.pointer, "main", p, bytes.length, bytes.length,
-      sqlite3.capi.SQLITE_DESERIALIZE_FREEONCLOSE));
-    db = h;
-    meta = man;
+    checkedAt = Date.now();
+    man = normalise(man);
+    const plan = planSync(man, have);
+    if (!plan.fetch.length && !plan.drop.length) {
+      if (db) return;                                   // in-session recheck: unchanged
+      const bytes = await cache.get("index");
+      if (bytes) { swapIn(engine.open(bytes), man, progress); return; }
+      // the meta survived but the blob did not: start over
+      plan.rebuild = true; plan.fetch = man.parts; plan.drop = [];
+    }
+    progress && progress({
+      stage: "downloading",
+      bytes: plan.fetch.reduce((n, p) => n + (p.bytes || 0), 0),
+      parts: plan.fetch.length,
+    });
+    // build the next index on its own handle, so queries keep running against
+    // the current one until it is complete
+    const base = plan.rebuild ? null : await cache.get("index");
+    const h = engine.open(base);
+    try {
+      for (const c of plan.drop) {
+        deleteScope(h, c.table === "*" ? Object.keys(TABLES) : [c.table], c);
+      }
+      for (const p of plan.fetch) applyPart(h, p, await download(p, murl, progress));
+      progress && progress({ stage: "opening" });
+      // deleted rows leave holes; without this they would be serialized too
+      h.exec("VACUUM");
+    } catch (e) {
+      h.close();
+      throw e;
+    }
+    const parts = {};
+    for (const p of man.parts) {
+      parts[p.key] = { key: p.key, id: p.id, table: p.table, season: p.season, week: p.week };
+    }
+    await cache.put("index", engine.export(h));
+    await cache.put("index:meta", { schema: man.schema, parts, manifest: man });
+    // drop whatever an older layout left behind (the whole-index "db:<sha>" blobs)
+    for (const k of await cache.keys()) {
+      if (k !== "index" && k !== "index:meta") await cache.del(k);
+    }
+    swapIn(h, man, progress);
   })();
   try { await loading; } finally { loading = null; }
 }

@@ -64,6 +64,63 @@ Extension package is ~1.6 MB. The 61 MB index is downloaded at runtime from
 `github.com/boorish-sports/all-22-index/releases/latest` (see `DEFAULT_MANIFEST`
 in `db.js`) and cached in IndexedDB.
 
+### The index ships as parts (2026-09-12)
+
+`build_index.publish` no longer emits one file. It emits **one file per
+completed season, one per week of the newest season, and one for the players
+table**, plus a `manifest.json` (`version: 2`) listing them. Each part carries
+a content `id` — a hash of its rows in a fixed order plus the schema DDL — that
+moves only when its rows do, and a `sha256` of the gzip for the client to
+verify. The manifest's `content_hash` is over the part ids and `schema` over
+the DDL. Every part has the full DDL of its table, so they can be merged with
+`INSERT ... SELECT *`.
+
+`db.js` keeps ONE merged database in IndexedDB (`index`) beside a record of
+which part each of its rows came from (`index:meta`). `ensureDb` diffs the
+manifest against that record (`planSync`) and fetches only the parts whose id
+moved, deleting the scope each one owns (`season`, or `season + week`, or the
+whole players table) before copying its rows in. So: a completed season is
+downloaded once and never again; nflverse's Tuesday revision of last week
+costs one ~1 MB file; the players table (participation counts) is ~1.2 MB and
+moves every push. A schema change (a retyped column) moves every id and the
+schema hash, and the merged copy is rebuilt from scratch. When the newest
+season is superseded its weekly parts are dropped for one season file — a
+one-time 15 MB fetch at each September rollover. A manifest that cannot be
+reached on a cold start opens the cached copy and retries in five minutes.
+
+The offscreen document lives until Chrome quits, so `ensureDb` re-fetches the
+manifest on the first query after an hour (`RECHECK_MS`), builds the next
+index on its own handle so queries keep running, and swaps it in; the panel
+gets a `refreshed` progress event and re-reads `/api/meta` so a new week shows
+up in the dropdowns without a page reload.
+
+Two things to know before touching this. **The merged copy must be rebuilt by
+the client, never patched by hand**: the build's `VACUUM` + `sqlite3_js_db_export`
+after every sync is what keeps the cached file compact. And **`RESIZEABLE`** on
+the deserialize of the merged copy is not optional — without it the first
+`INSERT` into a deserialized database fails with "database or disk is full".
+
+The two repos can ship in either order. A `db.js` with this code reads the
+old single-file manifest (`file` + `sha256`, no `parts`) as one part that
+owns every table (`normalise`), and treats the move to parts as a rebuild.
+Until the index repo publishes a `version: 2` manifest, every push still costs
+the whole file — the saving starts when it does.
+
+`tests/test_sync.py` publishes a small fixture through the real publisher and
+drives the real `db.js` under Node (`tests/sync_side.mjs`, node:sqlite standing
+in for the wasm handle) through a first install, a revised and a new week, an
+unchanged manifest, an offline cold start, a retyped column, the next season
+starting, and an old-format manifest — checking which files were fetched and
+that the merged copy matches the fixture row for row. `tests/wasm_sync.html`
+runs the same `db.js` against the real sqlite-wasm in a browser (serve the
+repo root and open it) — that is where `sqlite3_deserialize` into an attached
+schema and the export were verified; Node cannot exercise them.
+
+The index repo rebuilds three times a day (10:37 and 14:37 UTC, plus Monday
+01:37 UTC for Sunday's games), timed to nflverse's own updater which is cron'd
+at 09:03 UTC and lands 09:30-10:00. GitHub delays scheduled runs by hours,
+unpredictably, which is why there is a catch-up slot.
+
 ### Columns that arrive after the play
 
 nflverse's play-by-play lands within hours of a game. **FTN's charting layer
