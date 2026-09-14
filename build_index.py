@@ -12,6 +12,11 @@ DATA = os.path.join(HERE, "data")
 DB = os.path.join(DATA, "plays.db")
 PBP = "https://github.com/nflverse/nflverse-data/releases/download/pbp/play_by_play_%d.csv.gz"
 PLAYERS = "https://github.com/nflverse/nflverse-data/releases/download/players_components/players.csv"
+# players.csv trails the league: on 2026-09-14 it still stopped at rookie_season
+# 2025 and was missing 148 of the 1,039 players in week 1 (Shough, Skattebo,
+# Jadarian Price...), so none of them could be searched. The season roster is
+# rebuilt as teams sign people and had all 148.
+ROSTER = "https://github.com/nflverse/nflverse-data/releases/download/rosters/roster_%d.csv"
 # FTN Fantasy's charting layer, published free by nflverse (2022+). Adds the
 # things the base feed cannot know: play action, RPO, screen, motion, pressure
 # counts, drops, throwaways.
@@ -164,7 +169,11 @@ def main(seasons, full=False):
     with open(players_csv, newline="", encoding="utf-8") as f:
         rows = []
         for r in csv.DictReader(f):
-            if not r.get("gsis_id"):
+            # Plays name players by GSIS id (00-00xxxxx). players.csv also holds
+            # ~6,400 placeholders keyed by an ESB id instead (SHO768898); none
+            # can match a play, and once the roster fills in the real record
+            # they turn up as a second, empty Tyler Shough in the dropdown.
+            if not (r.get("gsis_id") or "").startswith("00-"):
                 continue
             # play descriptions use "W.Anderson"; older rows have no short_name,
             # so synthesise it the same way
@@ -176,6 +185,33 @@ def main(seasons, full=False):
                          r.get("jersey_number", ""), r.get("last_season", ""), 0))
     con.executemany("INSERT OR REPLACE INTO players VALUES (?,?,?,?,?,?,?,?,?)", rows)
     print("  players: %d" % len(rows))
+
+    # Fill in whoever players.csv has not caught up with, from each indexed
+    # season's roster. Only missing ids: where both know a player, players.csv
+    # is the richer record and stays.
+    known = {r[0] for r in rows}
+    for s in seasons:
+        path = os.path.join(DATA, "roster_%d.csv" % s)
+        try:
+            fetch(ROSTER % s, path)
+        except Exception:
+            print("  no roster for %d" % s)
+            continue
+        added = []
+        with open(path, newline="", encoding="utf-8") as f:
+            for r in csv.DictReader(f):
+                gid = r.get("gsis_id")
+                if not gid or gid in known:
+                    continue
+                first, last = r.get("first_name") or "", r.get("last_name") or ""
+                short = "%s.%s" % (first[0], last) if first and last else ""
+                # the roster calls players.csv's nfl_id gsis_it_id (same values)
+                added.append((gid, r.get("gsis_it_id") or "", r.get("full_name") or ("%s %s" % (first, last)).strip(),
+                              short, r.get("position", ""), r.get("team", ""),
+                              r.get("jersey_number", ""), str(s), 0))
+                known.add(gid)
+        con.executemany("INSERT OR REPLACE INTO players VALUES (?,?,?,?,?,?,?,?,?)", added)
+        print("  roster %d: %d players not yet in players.csv" % (s, len(added)))
 
     ins = "INSERT INTO plays VALUES (%s)" % ",".join("?" * len(header))
     numidx = {header.index(c) for c in header if types[c] == "REAL"}
