@@ -559,49 +559,10 @@
     try { v.requestVideoFrameCallback(cb); } catch {}
   }
 
-  /* NFL's controls are emotion-hashed (css-g5y9jx r-13awgt0...), so they cannot
-     be targeted by class. Find them structurally instead: the shallowest element
-     that holds the control buttons but does NOT wrap the <video>. That is the
-     whole UI layer painted over the picture. */
-  function controlLayer() {
-    const box = document.querySelector("#all22-video .a22box");
-    const v = box && box.querySelector("video");
-    if (!v) return null;
-    const tagged = box.querySelector(".a22-ui");
-    if (tagged && tagged.isConnected) return tagged;
-    let best = null, bestDepth = 1e9, maxBtns = 0;
-    box.querySelectorAll("div").forEach(el => {
-      if (el.contains(v)) return;
-      const n = el.querySelectorAll('button,[role="button"],[aria-label]').length;
-      if (!n) return;
-      let d = 0;
-      for (let x = el; x && x !== box; x = x.parentElement) d++;
-      if (n > maxBtns || (n === maxBtns && d < bestDepth)) { maxBtns = n; bestDepth = d; best = el; }
-    });
-    if (best) best.classList.add("a22-ui");
-
-    // NFL dims the picture while paused with a translucent black layer plus a
-    // gradient. Those survive their controls auto-hiding, so tag them too.
-    box.querySelectorAll("div").forEach(el => {
-      if (el.contains(v) || el.classList.contains("a22-scrim")) return;
-      const r = el.getBoundingClientRect();
-      if (r.width < box.clientWidth * 0.8 || r.height < box.clientHeight * 0.8) return;
-      const cs = getComputedStyle(el);
-      const bg = cs.backgroundColor || "";
-      const bi = cs.backgroundImage || "";
-      const m = bg.match(/rgba\(0,\s*0,\s*0,\s*([\d.]+)\)/);
-      const dimBg = m && parseFloat(m[1]) > 0.02;
-      const dimGrad = bi.includes("gradient") && bi.includes("rgba(0, 0, 0");
-      if (dimBg || dimGrad) el.classList.add("a22-scrim");
-    });
-    return best;
-  }
-
   let bare = false;
   function setBare(on) {
     const box = document.querySelector("#all22-video .a22box");
     if (!box) return;
-    controlLayer();                       // tag it before toggling
     bare = !!on;
     box.classList.toggle("bare", bare);
     if (!bare) { const t = document.getElementById("a-tc"); if (t) t.remove(); }
@@ -932,16 +893,18 @@
   #all22 .pchip{background:#b1924f;color:#17130a;border-radius:4px;padding:5px 9px;
     font:600 12px inherit;display:inline-flex;gap:7px;align-items:center;cursor:pointer}
   #all22-video{position:relative}
-  #all22-video .a22box.bare .a22-ui{opacity:0!important;pointer-events:none!important}
-  /* their paused-state dim outlives the controls, so clear it too */
-  #all22-video .a22box.bare .a22-scrim{background:none!important;background-image:none!important}
-  /* During a seek the player paints its poster over the picture, which reads as
-     a dark flash while scrubbing. Hiding it lets the last decoded frame show
-     through instead. These theoplayer-* names are the library's own and stable,
-     unlike the emotion hashes on NFL's wrappers. */
-  #all22-video .a22box.bare .theoplayer-poster,
-  #all22-video .a22box.bare [class*="theoplayer-loading"],
-  #all22-video .a22box.bare [class*="theoplayer-spinner"]{opacity:0!important}
+  /* Bare mode: nothing over the picture. NFL's class names are emotion hashes,
+     so the overlay is found by structure -- every element that neither is nor
+     wraps the <video> -- rather than by name. It has to be a selector and not a
+     class we stamp on: while you step, NFL's player rebuilds its whole overlay
+     about once a second (title, and a loading icon where play/pause sits) as
+     brand-new elements, and a tag on the old ones does not follow. Measured:
+     each step's seek lands in under 20ms with the frame ready, so that flash
+     was never the video. This also covers the paused-state dim layers and
+     THEOplayer's poster and spinner. [data-a22] is our own timecode. */
+  #all22-video .a22box.bare > :not([data-a22]):not(:has(video)),
+  #all22-video .a22box.bare > :not([data-a22]) :not(video):not(:has(video)){
+    opacity:0!important;pointer-events:none!important}
   #a-tc{position:absolute;left:10px;bottom:10px;z-index:8;width:auto!important;height:auto!important;background:#000a;color:#b1924f;
     padding:3px 8px;border-radius:4px;font:600 11px ui-monospace,Menlo,monospace;
     letter-spacing:.04em;pointer-events:none}
