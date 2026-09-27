@@ -36,10 +36,8 @@ ol{padding-left:22px}li{margin:6px 0}
 .top a.tip:hover{background:#b1924f;color:#17130a}
 .btn.t{background:transparent;color:#b1924f;border:1px solid #b1924f}
 .btn.t:hover{background:#b1924f;color:#17130a}
-.tipgrid{display:grid;grid-template-columns:1fr 330px;gap:16px;align-items:start}
-.tipgrid .box{margin:0}
-.kofi{width:100%;height:570px;border:1px solid #b1924f;border-radius:7px;background:#f9f9f9;box-shadow:0 0 0 4px #b1924f22}
-@media (max-width:640px){.tipgrid{grid-template-columns:1fr}}
+.kofiwrap{border:2px solid #b1924f;border-radius:9px;overflow:hidden;margin:14px 0}
+.kofi{display:block;width:100%;height:570px;border:0;background:#f9f9f9}
 .foot{margin-top:40px;padding-top:14px;border-top:1px solid #282828;color:#8f8f8f;font-size:12px}
 </style>
 <div class="w">
@@ -87,15 +85,15 @@ ol{padding-left:22px}li{margin:6px 0}
 
   <h2 id="tip">Tip jar</h2>
   <p>The extension is free and stays free. If it saved you time and you want to say thanks:</p>
-  <div class="tipgrid">
-    <div class="box">
-      <p><strong>What a tip is, and isn't.</strong> A tip is thanks for work that has already been done.
-      It is not a purchase, a licence, or a subscription; nothing is owed in return, and tips are not refunded.
-      If NFL Pro changes and the extension stops working, this page will say so and the tip button comes
-      down the same day. Please read the box at the top of this page before tipping.</p>
-      <p class="m">Tips go through <a href="https://ko-fi.com/boorishsports">Ko-fi</a>. If the form doesn't load, tip there directly.</p>
-    </div>
-    <iframe class="kofi" src="https://ko-fi.com/boorishsports/?hidefeed=true&amp;widget=true&amp;embed=true&amp;preview=true" title="Leave a tip on Ko-fi" loading="lazy"></iframe>
+  <div class="kofiwrap">
+  <iframe class="kofi" src="https://ko-fi.com/boorishsports/?hidefeed=true&amp;widget=true&amp;embed=true&amp;preview=true" title="Leave a tip on Ko-fi" loading="lazy"></iframe>
+  </div>
+  <div class="box">
+    <p><strong>What a tip is, and isn't.</strong> A tip is thanks for work that has already been done.
+    It is not a purchase, a licence, or a subscription; nothing is owed in return, and tips are not refunded.
+    If NFL Pro changes and the extension stops working, this page will say so and the tip button comes
+    down the same day. Please read the box at the top of this page before tipping.</p>
+    <p class="m">Tips go through <a href="https://ko-fi.com/boorishsports">Ko-fi</a>. If the form doesn't load, tip there directly.</p>
   </div>
 
   <h2>Privacy</h2>
