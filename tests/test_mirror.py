@@ -285,6 +285,9 @@ def lint():
         if late["key"] == "ftn" and late["cols"] != build_index.FTN_COLS:
             fails.append("roles.LATE_SOURCES['ftn'] has drifted from "
                          "build_index.FTN_COLS")
+        if late["key"] == "participation" and late["cols"] != build_index.PART_COLS:
+            fails.append("roles.LATE_SOURCES['participation'] has drifted from "
+                         "build_index.PART_COLS")
         if late["marker"] not in late["cols"]:
             fails.append("%s: marker %r is not one of its own columns"
                          % (late["key"], late["marker"]))

@@ -393,6 +393,23 @@ const LATE_SOURCES = [{
          "is_throw_away", "read_thrown", "is_catchable_ball", "is_contested_ball",
          "is_created_reception", "is_drop", "is_qb_sneak", "n_blitzers",
          "n_pass_rushers", "is_qb_fault_sack"],
+}, {
+  // nflverse publishes participation (coverage shell, personnel, formation)
+  // only once a season is over, so the newest season is empty until the
+  // offseason. `how` and `next` replace the FTN wording in the panel's notice.
+  key: "participation",
+  label: "Participation",
+  weekday: "",
+  how: "published by season",
+  next: "the current season lands after the Super Bowl",
+  note: "nflverse publishes participation (coverage, formation, personnel) " +
+        "once the season is over.",
+  marker: "n_offense",
+  // must stay in step with PART_COLS in build_index.py
+  cols: ["offense_formation", "offense_personnel", "defense_personnel",
+         "defenders_in_box", "number_of_pass_rushers", "n_offense", "n_defense",
+         "time_to_throw", "was_pressure", "route", "defense_man_zone_type",
+         "defense_coverage_type"],
 }];
 
 function lateSources() {

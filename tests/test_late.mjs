@@ -100,4 +100,26 @@ for (const [sc, warn, why] of [
   assert.match(n.text, /charted by hand/);
 }
 
+// participation arrives a season at a time: its own wording, never FTN's weekday
+{
+  const part = {
+    key: "participation", label: "Participation", weekday: "",
+    how: "published by season", next: "the current season lands after the Super Bowl",
+    note: "nflverse publishes participation (coverage, formation, personnel) once the season is over.",
+    marker: "n_offense", cols: ["n_offense", "defense_coverage_type"],
+    season: 2026, week: 4, games: 16, charted: 0, through: { season: 2025, week: 22 },
+  };
+  scope = { season: "2025", week: "" }; setLate([part]);
+  let n = lateNote("defense_coverage_type");
+  assert.equal(n.warn, undefined, "2025 participation is complete");
+  assert.match(n.text, /published by season/);
+  assert.match(n.text, /after the Super Bowl/);
+  assert.doesNotMatch(n.text, /charted by hand|usually land/);
+  scope = { season: "2026", week: "" };
+  n = lateNote("defense_coverage_type");
+  assert.equal(n.warn, true, "2026 has none yet");
+  assert.match(n.text, /stops at 2025 week 22/);
+  assert.match(n.text, /once the season is over/);
+}
+
 console.log("late-data notices: all states ok");

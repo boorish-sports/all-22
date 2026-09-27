@@ -22,6 +22,8 @@ SOURCES = [
      "Field", "Description"),
     ("https://raw.githubusercontent.com/nflverse/nflreadr/main/data-raw/dictionary_ftn_charting.csv",
      "field_name", "description"),
+    ("https://raw.githubusercontent.com/nflverse/nflreadr/main/data-raw/dictionary_participation.csv",
+     "Field", "Description"),
 ]
 
 
@@ -60,6 +62,13 @@ OVERRIDES = {
     "rushing_yards":   "Yards by the rusher, excluding yards gained in rush plays with laterals.",
     "lateral_receiving_yards": "Yards by the player who received the lateral on a pass play.",
     "lateral_rushing_yards":   "Yards by the player who received the lateral on a run play.",
+    # participation opens with "String/Boolean indicating", which STRIP misses
+    "was_pressure":          "QB was pressured on the play.",
+    "defense_man_zone_type": "Whether the defense was in man or zone coverage.",
+    "defense_coverage_type": "Coverage the defense was in: COVER_0, COVER_1, COVER_2, 2_MAN, "
+                             "COVER_3, COVER_4, COVER_6, COVER_9, COMBO, or BLOWN.",
+    "route": "Route the primary receiver ran: CORNER, DEEP OUT, GO, HITCH/CURL, IN/DIG, POST, "
+             "QUICK OUT, SCREEN, SHALLOW CROSS/DRAG, SLANT, SWING, TEXAS/ANGLE, or WHEEL.",
 }
 
 

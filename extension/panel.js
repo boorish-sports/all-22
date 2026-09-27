@@ -147,6 +147,17 @@
     is_created_reception: "Created reception", is_drop: "Drop",
     is_qb_fault_sack: "Sack was QB's fault",
     read_thrown: "Read thrown to", qb_location: "QB alignment",
+
+    /* Participation (nflverse, published after each season). Two of these
+       overlap FTN's counts, so the source is named where it would clash. */
+    offense_formation: "Formation", offense_personnel: "Offensive personnel",
+    defense_personnel: "Defensive personnel",
+    defenders_in_box: "# In the box (participation)",
+    number_of_pass_rushers: "# Pass rushers (participation)",
+    n_offense: "# Offensive players", n_defense: "# Defensive players",
+    time_to_throw: "Time to throw (s)", was_pressure: "QB pressured",
+    route: "Primary receiver route", defense_man_zone_type: "Man / zone",
+    defense_coverage_type: "Coverage shell",
   };
   /* Merged columns, published by the backend: one "Forced fumble" instead of
      the two numbered slots nflverse actually stores. GROUPS is keyed by the
@@ -1585,10 +1596,11 @@
     const s = LATEOF.get(col);
     if (!s) return null;
     const at = `${s.season} week ${s.week}`;
+    const next = s.next || `new weeks usually land ${s.weekday}`;
     if (s.games && s.charted >= s.games)
-      return { text: `${s.label} · complete through ${at} · new weeks usually land ${s.weekday}` };
+      return { text: `${s.label} · complete through ${at} · ${next}` };
     if (!scopeReachesGap(s))
-      return { text: `${s.label} · charted by hand · new weeks usually land ${s.weekday}` };
+      return { text: `${s.label} · ${s.how || "charted by hand"} · ${next}` };
     if (s.charted)
       return { warn: true,
                text: `${s.label} has ${s.charted} of ${s.games} games in ${at} so far. ${s.note}` };

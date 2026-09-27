@@ -30,21 +30,45 @@ FTN_COLS = ["starting_hash", "qb_location", "n_offense_backfield", "n_defense_bo
             "n_pass_rushers", "is_qb_fault_sack"]
 FTN_INT = {"n_offense_backfield", "n_defense_box", "n_blitzers", "n_pass_rushers"}
 
+# nflverse's participation release: coverage shell, formation, personnel,
+# pressure, time to throw. FTN charts it too (since 2023), but nflverse only
+# publishes a season once it is OVER -- on 2026-09-27 the 2025 file was up and
+# 2026 was a 404 -- so the newest season carries these columns empty. Left out:
+# ngs_air_yards (empty since 2024; air_yards replaces it) and the per-player
+# id/name/number lists, which would roughly double a season part.
+PARTICIPATION = ("https://github.com/nflverse/nflverse-data/releases/download/"
+                 "pbp_participation/pbp_participation_%d.csv")
+PART_COLS = ["offense_formation", "offense_personnel", "defense_personnel",
+             "defenders_in_box", "number_of_pass_rushers", "n_offense", "n_defense",
+             "time_to_throw", "was_pressure", "route", "defense_man_zone_type",
+             "defense_coverage_type"]
+PART_INT = {"defenders_in_box", "number_of_pass_rushers", "n_offense", "n_defense"}
+PART_REAL = {"time_to_throw"}
 
-def load_ftn(season):
-    """(game_id, play_id) -> charted values, or {} if that season isn't charted."""
-    path = os.path.join(DATA, "ftn_%d.csv" % season)
+# Layers joined onto each pbp row by (game_id, play_id), in column order.
+LAYERS = [
+    {"label": "FTN charting", "url": FTN, "file": "ftn_%d.csv", "cols": FTN_COLS,
+     "ints": FTN_INT, "reals": set(), "play": "nflverse_play_id"},
+    {"label": "participation", "url": PARTICIPATION, "file": "participation_%d.csv",
+     "cols": PART_COLS, "ints": PART_INT, "reals": PART_REAL, "play": "play_id"},
+]
+LAYER_COLS = [c for L in LAYERS for c in L["cols"]]
+
+
+def load_layer(layer, season):
+    """(game_id, play_id) -> the layer's values, or {} if that season isn't out."""
+    path = os.path.join(DATA, layer["file"] % season)
     try:
-        fetch(FTN % season, path)
+        fetch(layer["url"] % season, path)
     except Exception:
-        print("  no FTN charting for %d" % season)
+        print("  no %s for %d" % (layer["label"], season))
         return {}
     out = {}
     with open(path, newline="", encoding="utf-8", errors="replace") as f:
         for r in csv.DictReader(f):
-            key = (r.get("nflverse_game_id"), r.get("nflverse_play_id"))
+            key = (r.get("nflverse_game_id"), r.get(layer["play"]))
             row = []
-            for c in FTN_COLS:
+            for c in layer["cols"]:
                 v = (r.get(c) or "").strip()
                 if v in ("", "NA"):
                     row.append(None)
@@ -52,14 +76,18 @@ def load_ftn(season):
                     row.append("1")
                 elif v == "FALSE":
                     row.append("0")
-                elif c in FTN_INT:
+                elif c in layer["ints"]:
                     try: row.append(int(float(v)))
+                    except ValueError: row.append(None)
+                elif c in layer["reals"]:
+                    try: row.append(float(v))
                     except ValueError: row.append(None)
                 else:
                     row.append(v)
             out[key] = row
-    print("  FTN %d: %d charted plays" % (season, len(out)))
+    print("  %s %d: %d plays" % (layer["label"], season, len(out)))
     return out
+
 
 # identifiers must stay exact -- never floats, or 2025090400 becomes 2025090400.0
 FORCE_INT = {"play_id", "season", "week", "qtr", "down"}
@@ -139,13 +167,15 @@ def main(seasons, full=False):
         # mistaken for an integer one
         sample = [row for _, row in zip(range(20000), rd)]
     keep_idx = [i for i, c in enumerate(raw_header) if full or not SKIP.search(c)]
-    header = [raw_header[i] for i in keep_idx] + FTN_COLS
+    header = [raw_header[i] for i in keep_idx] + LAYER_COLS
     if not full:
         print("  dropping %d low-value columns (--full keeps them)"
               % (len(raw_header) - len(keep_idx)))
     types = {}
-    for col in FTN_COLS:
-        types[col] = "INTEGER" if col in FTN_INT else "TEXT"
+    for L in LAYERS:
+        for col in L["cols"]:
+            types[col] = ("INTEGER" if col in L["ints"] else
+                          "REAL" if col in L["reals"] else "TEXT")
     for col, src_i in zip(header, keep_idx):
         if col in FORCE_INT:
             types[col] = "INTEGER"
@@ -219,10 +249,10 @@ def main(seasons, full=False):
     total = 0
     gid_i = raw_header.index("game_id")
     pid_i = raw_header.index("play_id")
-    blank = [None] * len(FTN_COLS)
     for season, p in zip(seasons, paths):
-        ftn = load_ftn(int(season))
-        n = matched = 0
+        layers = [(load_layer(L, int(season)), [None] * len(L["cols"])) for L in LAYERS]
+        n = 0
+        matched = [0] * len(LAYERS)
         with gzip.open(p, "rt", newline="", encoding="utf-8", errors="replace") as f:
             rd = csv.reader(f)
             head = next(rd)
@@ -233,10 +263,12 @@ def main(seasons, full=False):
                 if len(full_row) != len(raw_header):
                     continue
                 row = [full_row[i] for i in keep_idx]
-                chart = ftn.get((full_row[gid_i], full_row[pid_i]))
-                if chart:
-                    matched += 1
-                row = row + (chart or blank)
+                key = (full_row[gid_i], full_row[pid_i])
+                for i, (lay, blank) in enumerate(layers):
+                    got = lay.get(key)
+                    if got:
+                        matched[i] += 1
+                    row = row + (got or blank)
                 out = []
                 for i, v in enumerate(row):
                     if v is None or v in ("", "NA"):
@@ -259,7 +291,8 @@ def main(seasons, full=False):
                     con.executemany(ins, batch); n += len(batch); batch = []
             if batch:
                 con.executemany(ins, batch); n += len(batch)
-        print("  %s: %d rows (%d with FTN charting)" % (os.path.basename(p), n, matched))
+        print("  %s: %d rows (%s)" % (os.path.basename(p), n, ", ".join(
+            "%d with %s" % (m, L["label"]) for m, L in zip(matched, LAYERS))))
         total += n
 
     for idx, col in [("idx_game", "old_game_id"), ("idx_sw", "season"), ("idx_pos", "posteam"),
