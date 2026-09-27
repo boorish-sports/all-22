@@ -3,6 +3,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>All-22 Film Search</title>
+<link rel="icon" href="icon.png">
 <meta name="description" content="A free Chrome extension that makes NFL Pro's film room searchable. Requires an active NFL Pro subscription. Unofficial; may stop working at any time.">
 <style>
 :root{color-scheme:dark}
@@ -26,7 +27,11 @@ a:hover{color:#c9a961;border-bottom-style:solid}
 code{background:#1e1e1e;border:1px solid #282828;border-radius:4px;padding:1px 6px;font-family:ui-monospace,Menlo,monospace;font-size:13px}
 ol{padding-left:22px}li{margin:6px 0}
 .m{color:#adadad;font-size:13px}
-.top{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+.top{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.brand{display:flex;align-items:center;gap:12px}
+.brand img{width:44px;height:44px;display:block}
+.brand h1{margin:0}
+.top{margin-bottom:14px}
 .top a.tip{font-size:13px;font-weight:600;border:1px solid #b1924f;border-radius:5px;padding:4px 10px;white-space:nowrap}
 .top a.tip:hover{background:#b1924f;color:#17130a}
 .btn.t{background:transparent;color:#b1924f;border:1px solid #b1924f}
@@ -39,7 +44,7 @@ ol{padding-left:22px}li{margin:6px 0}
 </style>
 <div class="w">
   <div class="top">
-    <h1>All-22 Film Search</h1>
+    <div class="brand"><img src="icon.png" alt="" width="44" height="44"><h1>All-22 Film Search</h1></div>
     <a class="tip" href="#tip">Tip jar</a>
   </div>
   <p class="lede">A free Chrome extension that makes NFL Pro's film room searchable.
