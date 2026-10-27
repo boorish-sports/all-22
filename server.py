@@ -186,6 +186,17 @@ def redundant_flags(con, cols):
     return _redundant
 
 
+def empty_by_season(con, cols):
+    """Per season, the columns with no value at all. Mirrors db.js emptyBySeason."""
+    names = list(cols)
+    sel = ",".join('COUNT("%s")' % c for c in names)
+    out = {}
+    for row in con.execute("SELECT season, %s FROM plays GROUP BY season ORDER BY season" % sel):
+        season, n = row[0], row[1:]
+        out[str(season)] = sorted(c for c, k in zip(names, n) if not k)
+    return out
+
+
 def late_coverage(con, cols):
     """How far each late-arriving source has actually been charted.
 
@@ -278,7 +289,32 @@ def base_filters(cols, qs):
         if text:
             where.append('"desc" LIKE ?')
             args.append("%" + text + "%")
+
+    # ids=<old_game_id/play_id,...>: only these plays -- the list an NFL Pro
+    # film-room query returned. Present but holding no valid id matches nothing.
+    if "ids" in qs:
+        keys = id_list(qs["ids"][0])
+        if not keys:
+            where.append("0")
+        else:
+            where.append("(old_game_id || '/' || play_id) IN (SELECT value FROM json_each(?))")
+            args.append(json.dumps(keys))
     return where, args
+
+
+IDS_MAX = 20000
+
+
+def id_list(s):
+    """"2026102505/1611,..." -> the well-formed keys, deduplicated. Mirrors db.js."""
+    out = {}
+    for k in (s or "").split(","):
+        m = re.match(r"^(\d{10})/(\d{1,6})$", k.strip())
+        if m:
+            out["%s/%d" % (m.group(1), int(m.group(2)))] = 1
+        if len(out) >= IDS_MAX:
+            break
+    return list(out)
 
 
 def scope_filters(con, qs):
@@ -426,6 +462,13 @@ class H(BaseHTTPRequestHandler):
         try:
             if u.path == "/api/search":
                 return self._send(200, json.dumps(search(con, qs)))
+            if u.path == "/api/known":
+                keys = id_list(one.get("ids", ""))
+                rows = con.execute(
+                    "SELECT old_game_id || '/' || play_id FROM plays "
+                    "WHERE (old_game_id || '/' || play_id) IN (SELECT value FROM json_each(?)) "
+                    "ORDER BY 1", (json.dumps(keys),)).fetchall() if keys else []
+                return self._send(200, json.dumps([r[0] for r in rows]))
             if u.path == "/api/plays":
                 return self._send(200, json.dumps(plays_by_id(con, one.get("ids", ""))))
             if u.path == "/api/values":
@@ -595,6 +638,7 @@ class H(BaseHTTPRequestHandler):
                     # columns that arrive days after the play, and how far each
                     # one has got -- the panel flags them where they are picked
                     "late": late_coverage(con, schema(con)),
+                    "empty": empty_by_season(con, schema(con)),
                 }))
         except Exception as e:
             return self._send(500, json.dumps({"error": str(e)}))

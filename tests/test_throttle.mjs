@@ -48,8 +48,8 @@ function harness() {
     st, log, setRespond: f => { respond = f; },
   };
   const body = gate + clip + sel + "\n  return { secured, clipFor, selectPlay, setRows: r => { lastRows = r; } };";
-  const api = new Function("nuxt", "backend", "post", "mount", "q", "esc", "ANGLES", "drawNote", body)(
-    env.nuxt, env.backend, env.post, env.mount, env.q, env.esc, env.ANGLES, () => {});
+  const api = new Function("nuxt", "backend", "post", "mount", "q", "esc", "ANGLES", "drawNote", "drawOnField", body)(
+    env.nuxt, env.backend, env.post, env.mount, env.q, env.esc, env.ANGLES, () => {}, () => {});
   return Object.assign(env, api);
 }
 

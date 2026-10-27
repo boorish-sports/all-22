@@ -19,11 +19,11 @@ reference to the service the extension works with.
 
     REQUIRES AN ACTIVE NFL PRO SUBSCRIPTION. This extension does nothing useful without one.
 
-    All-22 Film Search adds a search panel to NFL Pro's film room (pro.nfl.com). Filter 337 columns of nflverse play-by-play — tacklers, pressures, EPA, CPOE, personnel, play action, motion, drops, throwaways, and every other field nflverse publishes — and the matching plays appear instantly. Click a play and its Sideline and Endzone angles play in NFL Pro's own video player, in a side panel, under your own subscription. Frame stepping, speed control and keyboard shortcuts are built in. Save plays into named cutups, write a note on any play, and share a cutup as a link with anyone else who has NFL Pro.
+    All-22 Film Search adds a search panel to NFL Pro's film room (pro.nfl.com). Filter 337 columns of nflverse play-by-play — tacklers, pressures, EPA, CPOE, personnel, play action, motion, drops, throwaways, and every other field nflverse publishes — and the matching plays appear instantly. Click a play and its Sideline and Endzone angles play in NFL Pro's own video player, in a side panel, under your own subscription. Frame stepping, speed control and keyboard shortcuts are built in. NFL Pro's own film-room filters work in the same search box — who was on the field, routes run, pass-rush and coverage snaps, nearest defender, separation, man or zone — including for the current season. Save plays into named cutups, write a note on any play, and share a cutup as a link with anyone else who has NFL Pro.
 
     HOW IT WORKS
     • Search is entirely local. A SQLite index of public nflverse data (about 15 MB compressed) is downloaded from GitHub once and cached in your browser; in season, only the weeks that changed are fetched after that. Nothing you search leaves your machine.
-    • The only requests made to NFL Pro are one clip lookup per play you click, using your own logged-in session — the same requests the film room makes when you click a play there. No prefetching, no bulk downloading.
+    • NFL Pro is asked only when you act: one clip lookup per play you click, one film-room query when a search uses an NFL Pro filter, and one lookup per play for the On field list while it is showing, using your own logged-in session — the same requests the film room makes when you use it. No prefetching, no bulk downloading.
     • No video is ever downloaded, copied, cached or re-hosted. Playback is NFL Pro's own DRM player.
 
     PLEASE READ

@@ -27,6 +27,12 @@ landing page copy and any conversation with the NFL:
 
 - **Search is 100% local.** SQLite/WASM over a ~61 MB index. Zero NFL traffic.
 - **One `/api/secured/videos/coaches` call per play the user actually clicks.**
+- **One `/api/secured/videos/filmroom/plays` call per search that uses an NFL Pro
+  filter** (added 2026-10-27), cached per query. It is the request NFL Pro's own
+  film room makes on every filter change, and it also hands back each game's UUID,
+  which saves the lookup clip playback would otherwise make.
+- **One `/api/plays/summaryPlay` call per play while the On field list is showing**
+  (always in wide view; in half view only while its panel is open), cached per play.
 - Game-UUID resolution is cached in `chrome.storage` and persists across sessions
   (`extension/panel.js`, `uuidCache` + `gameUuid()`).
 - There is **no prefetching and no bulk enumeration**.

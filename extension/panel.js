@@ -7,8 +7,9 @@
  *
  * Search itself is local: nflverse SQLite (337 columns) running in the
  * extension's offscreen document, reached through iso.js. The only requests
- * that go to NFL are the clip lookups for plays the user actually selects --
- * see secured() below. Nothing is downloaded, cached or re-hosted.
+ * that go to NFL are the clip lookups for plays the user actually selects, and
+ * one film-room query for a search that uses an NFL Pro filter -- see secured()
+ * below. Nothing is downloaded, cached or re-hosted.
  */
 (() => {
   if (window.__all22) return;
@@ -188,7 +189,9 @@
 
   /* Every request to /api/secured/* goes through here, and this is the whole
      of the extension's NFL traffic: one UUID lookup per game never seen on this
-     machine, one clip lookup per play the user selects. There is deliberately
+     machine, one clip lookup per play the user selects, one film-room query
+     per search that uses an NFL Pro filter (cached), one summaryPlay per play
+     while the On field list is showing (cached). There is deliberately
      no prefetching and no bulk enumeration anywhere -- a user with this panel
      open generates less load than the same user clicking around the film room.
 
@@ -243,7 +246,7 @@
         else if (s === 429) pausedUntil = Date.now() + COOLDOWN;
         if (s) {
           apiGate();                          // throws the dead / paused message
-          throw new ApiError("NFL Pro returned HTTP " + s + " for this clip.", s);
+          throw new ApiError("NFL Pro returned HTTP " + s + ".", s);
         }
         throw e;
       }
@@ -289,6 +292,160 @@
       imageSrc: t.thumbnail && t.thumbnail.thumbnailUrl,
     }));
   }
+
+  /* ---------------- NFL Pro film-room queries ----------------
+     NFL Pro's own film room filters plays by data nflverse does not carry
+     in season: who was on the field, routes run, pass-rush and coverage snaps,
+     nearest defender, separation, speed. One request answers a whole search
+     -- the same request the film room makes when you change a filter there --
+     and comes back as a list of game/play ids, which the local index then
+     narrows further with every other filter. Cached, so re-running a search
+     or re-sorting it costs nothing. Probed 2026-10-27: a full league season
+     (7,625 pass plays, ~4 MB) arrives in one response, no paging. */
+  const NFL_TTL = 10 * 60e3;          // a live week's answer can still change
+  const NFL_CACHE_MAX = 24;
+  const nflCache = new Map();         // query string -> result
+  const nflKey = (g, pl) => `${g}/${pl}`;
+
+  // season + week as NFL Pro names them; no week means the regular season
+  function nflWhen(season, week) {
+    const out = { season: Number(season), seasonType: "REG" };
+    const w = Number(week);
+    if (week !== "" && week != null && !isNaN(w)) {
+      const post = { 19: "WC", 20: "DIV", 21: "CONF", 22: "SB" }[w];
+      if (post) { out.seasonType = "POST"; out.weekSlug = post; }
+      else out.weekSlug = "WEEK_" + w;
+    }
+    return out;
+  }
+
+  async function nflPlays(params) {
+    const qs = new URLSearchParams(Object.entries(params)
+      .filter(([, v]) => v !== "" && v != null).sort()).toString();
+    const hit = nflCache.get(qs);
+    if (hit && (hit.settled || Date.now() - hit.at < NFL_TTL)) {
+      nflCache.delete(qs); nflCache.set(qs, hit);      // most recent last
+      return Object.assign({ cached: true }, hit);
+    }
+    const d = await secured("/api/secured/videos/filmroom/plays", Object.fromEntries(new URLSearchParams(qs)));
+    // NFL Pro's own "too many plays" answer: a code, or a count with no plays
+    if (!d || d.code || (d.count > 0 && !(d.plays || []).length))
+      throw new ApiError("NFL Pro says that search covers too many plays. Narrow it with a week, a team or a player.", 0);
+    const plays = new Map();
+    const uuids = {};
+    for (const pl of d.plays || []) {
+      const g = String(pl.gameId);
+      plays.set(nflKey(g, pl.playId), pl);
+      // every row names its game's UUID: remember it, and the clip lookup
+      // for any of these plays skips the request that would have found it
+      if (pl.fapiGameId && !uuidCache.has(g)) { uuidCache.set(g, pl.fapiGameId); uuids[g] = pl.fapiGameId; }
+    }
+    if (Object.keys(uuids).length) post("/api/game_uuid", { many: uuids }).catch(() => {});
+    const res = { at: Date.now(), count: plays.size, keys: [...plays.keys()], plays,
+                  // a finished season's answer will not change
+                  settled: params.season < new Date().getFullYear() - (new Date().getMonth() < 2 ? 1 : 0) };
+    nflCache.set(qs, res);
+    while (nflCache.size > NFL_CACHE_MAX) nflCache.delete(nflCache.keys().next().value);
+    return res;
+  }
+
+  /* A play NFL Pro has and the local index does not yet (nflverse lands a few
+     hours behind), drawn from NFL's own fields in the shape a search row has.
+     It plays like any other: clipFor needs only the ids and the game UUID. */
+  function nflRow(pl) {
+    const home = pl.homeTeamAbbr, away = pl.visitorTeamAbbr;
+    const pos = pl.possessionTeamId === pl.homeTeamId ? home
+              : pl.possessionTeamId === pl.visitorTeamId ? away : null;
+    return {
+      old_game_id: String(pl.gameId), play_id: pl.playId, season: pl.season,
+      season_type: pl.seasonType, week: pl.week, week_slug: pl.weekSlug,
+      home_team: home, away_team: away, posteam: pos,
+      defteam: pos ? (pos === home ? away : home) : null,
+      qtr: pl.quarter, time: pl.gameClock, down: pl.down || null,
+      ydstogo: pl.down ? pl.yardsToGo : null, desc: pl.playDescription || "",
+      play_type: null, epa: null, nflOnly: true,
+    };
+  }
+
+  /* NFL Pro filters offered in "Any filter", curated from the film room's own
+     definitions (its public bundle, read 2026-10-27). Only what nflverse and
+     FTN do not already give during the season: plain play facts (down, sack,
+     play action, box count...) stay with the index, and NFL's own player and
+     team pickers give way to ours. `who` is the NFL key the picked player
+     fills; `needs` marks a filter that means nothing without a player. */
+  const YN = [["1", "Yes"], ["0", "No"]], YES = [["1", "Yes"]];
+  const n_ = k => [...Array(k + 1).keys()].map(i => [String(i), String(i)]);
+  const NFLF = [
+    { key: "dropbackTimeType", label: "Time to throw", group: "Passing", who: "passerId",
+      values: [["QUICK", "Quick (under 2.5 s)"], ["LONG", "Long (2.5 s or more)"]] },
+    { key: "pressure", label: "Pressured", group: "Passing", values: YN },
+    { key: "routeType", label: "Route type", group: "Receiving", who: "routeRunnerId",
+      values: [["IN", "In-breaking"], ["OUT", "Out-breaking"], ["VERTICAL", "Vertical"],
+               ["RB_SCREEN", "RB screen"], ["WR_SCREEN", "WR screen"]] },
+    { key: "receiverAlignment", label: "Receiver alignment", group: "Receiving", who: "routeRunnerId",
+      values: [["WIDE", "Wide"], ["SLOT", "Slot"], ["TIGHT", "Tight"], ["BACKFIELD", "Backfield"]] },
+    { key: "rec_coverageType", label: "Coverage faced: press or off", group: "Receiving", who: "routeRunnerId",
+      values: [["PRESS", "Press"], ["OFF", "Off"]] },
+    { key: "rec_motion", label: "Receiver in motion", group: "Receiving", who: "routeRunnerId", values: YN },
+    { key: "separationType", label: "Separation at the target", group: "Receiving", who: "targetId",
+      values: [["TIGHT", "Tight window (under 1 yd)"], ["OPEN", "Open (3+ yds)"]] },
+    { key: "targetLocation", label: "Target location", group: "Receiving", who: "targetId",
+      values: [["OUTSIDE_NUMBERS", "Outside the numbers"], ["DOWN_SEAMS", "Down the seams"],
+               ["BETWEEN_HASHES", "Between the hashes"]] },
+    { key: "maxSpeedType", label: "Max speed", group: "Ball carrier", who: "nflId", needs: true,
+      values: [["LESS_THAN_15", "Under 15 mph"], ["OVER_15", "Over 15 mph"], ["OVER_20", "Over 20 mph"]] },
+    { key: "teamCoverageTypeManZone", label: "Man vs zone", group: "Coverage",
+      values: [["MAN_COVERAGE", "Man"], ["ZONE_COVERAGE", "Zone"]] },
+    { key: "teamCoverageTypeSafetyShell", label: "Safety shell", group: "Coverage",
+      values: [["SINGLE_HIGH", "Single high"], ["SPLIT_SAFETY", "Split safety"], ["COVER_0", "Cover 0"]] },
+    { key: "personnel", label: "Defensive personnel", group: "Personnel",
+      values: [["BASE", "Base"], ["NICKEL", "Nickel"], ["DIME", "Dime"]] },
+    { key: "offensePersonnel", label: "Offensive personnel", group: "Personnel",
+      values: [["11_PERSONNEL", "11"], ["12_PERSONNEL", "12"], ["13_PERSONNEL", "13"],
+               ["21_PERSONNEL", "21"], ["JUMBO_PERSONNEL", "Jumbo"]] },
+    { key: "rb", label: "Running backs on the field", group: "Personnel", values: n_(3) },
+    { key: "te", label: "Tight ends on the field", group: "Personnel", values: n_(3) },
+    { key: "wr", label: "Wide receivers on the field", group: "Personnel", values: n_(5) },
+    { key: "runStuff", label: "Run stuffed", group: "Run defense", values: YN },
+    { key: "passRushSnap", label: "Pass-rush snap", group: "Defender", who: "defenderId", needs: true, values: YN },
+    { key: "coverageSnap", label: "Coverage snap", group: "Defender", who: "defenderId", needs: true, values: YN },
+    { key: "runDefenseSnap", label: "Run-defense snap", group: "Defender", who: "defenderId", needs: true, values: YES },
+    { key: "defensiveSnap", label: "Defensive snap", group: "Defender", who: "defenderId", needs: true, values: YES },
+    { key: "linedUpInTheBox", label: "Lined up in the box", group: "Defender", who: "defenderId", needs: true, values: YES },
+    { key: "def_alignment", label: "Defender alignment", group: "Defender", who: "defenderId", needs: true,
+      values: [["PLAYER_ALIGNMENT_EDGE", "Edge"], ["PLAYER_ALIGNMENT_DT", "DT"], ["PLAYER_ALIGNMENT_LB", "LB"],
+               ["PLAYER_ALIGNMENT_SLOT", "Slot"], ["PLAYER_ALIGNMENT_CB", "CB"],
+               ["PLAYER_ALIGNMENT_SS", "SS"], ["PLAYER_ALIGNMENT_FS", "FS"]] },
+    { key: "def_coverageType", label: "Defender in press or off", group: "Defender", who: "defenderId", needs: true,
+      values: [["PRESS", "Press"], ["OFF", "Off"]] },
+    { key: "def_pressure", label: "Pressure by the defender", group: "Defender", who: "defenderId", needs: true, values: YN },
+    { key: "def_runStuff", label: "Run stuff by the defender", group: "Defender", who: "defenderId", needs: true, values: YN },
+    { key: "tackleStop", label: "Tackle for a stop", group: "Defender", who: "defenderId", needs: true, values: YES },
+    { key: "hustleStop", label: "Hustle stop", group: "Defender", who: "defenderId", needs: true, values: YES },
+    { key: "turnoversCausedByPressure", label: "Turnover caused by pressure", group: "Defender", who: "defenderId", needs: true, values: YES },
+    { key: "targetNearestDefender", label: "Nearest defender on the target", group: "Defender", who: "defenderId", needs: true, values: YES },
+    { key: "receptionNearestDefender", label: "Nearest defender on a catch", group: "Defender", who: "defenderId", needs: true, values: YES },
+    { key: "receivingTDNearestDefender", label: "Nearest defender on a TD catch", group: "Defender", who: "defenderId", needs: true, values: YES },
+  ];
+  const NFLF_BY = Object.fromEntries(NFLF.map(d => [d.key, d]));
+  // "Any filter" keys NFL Pro filters as "nfl:<key>" so they never collide with a column
+  const nflDef = k => (k && k.startsWith("nfl:") ? NFLF_BY[k.slice(4)] || null : null);
+  const nflValLabel = (d, v) => ((d.values.find(x => x[0] === String(v)) || [, v])[1]);
+
+  /* What a picked player can ask NFL Pro, offered in the Action menu. Each is
+     one film-room query scoped to him; none of them narrows the index by the
+     nflverse participation columns, which never record a snap he only lined
+     up for. */
+  const DEF_POS = /^(DE|DT|NT|DL|LB|ILB|OLB|MLB|EDGE|CB|S|SS|FS|SAF|DB)$/;
+  const NFL_ACTIONS = [
+    { key: "nfl:field", label: "On field", who: "nflId" },
+    { key: "nfl:routes", label: "Routes run", who: "routeRunnerId", side: "off", pos: /^(WR|TE|RB|FB)$/ },
+    { key: "nfl:rush", label: "Pass-rush snaps", who: "defenderId", side: "def", set: { passRushSnap: 1 } },
+    { key: "nfl:cover", label: "Coverage snaps", who: "defenderId", side: "def", set: { coverageSnap: 1 } },
+    { key: "nfl:rundef", label: "Run-defense snaps", who: "defenderId", side: "def", set: { runDefenseSnap: 1 } },
+    { key: "nfl:nearest", label: "Targets as nearest defender", who: "defenderId", side: "def", set: { targetNearestDefender: 1 } },
+  ];
+  const NFL_ACTION_BY = Object.fromEntries(NFL_ACTIONS.map(a => [a.key, a]));
 
   /* ---------------- player ---------------- */
   let root = null, curList = [], curIdx = 0, syncTimer = null, vpCache = null;
@@ -338,6 +495,9 @@
     bar.innerHTML = curList.map((c, i) =>
       `<button class="${i === curIdx ? "on" : ""}" data-i="${i}">${esc(c.videoView)}</button>`).join("") +
       '<span class="pgrp">' +
+        (p.classList.contains("wide") ? "" :
+          `<button class="ofb${onOpen ? " on" : ""}" data-of="1" title="Who was on the field"` +
+          ` aria-expanded="${onOpen}">On field</button>`) +
         `<button class="ico" data-prev="1"${prev ? "" : " disabled"}` +
         ` title="Previous play (p)" aria-label="Previous play">\u2039</button>` +
         `<button class="ico" data-next="1"${more ? "" : " disabled"}` +
@@ -370,6 +530,8 @@
     if (gear) gear.onclick = e => { e.stopPropagation(); setMenu(!menuOpen); };
     const kh = bar.querySelector(".khint");
     if (kh) kh.onclick = () => toggleHelp();
+    const of = bar.querySelector("button[data-of]");
+    if (of) of.onclick = e => { e.stopPropagation(); setOnField(!onOpen); };
   }
 
   /* The bar is redrawn whenever the angle, rate or toggle changes, which would
@@ -683,6 +845,11 @@
       e.preventDefault();
       return;
     }
+    if (e.key === "Escape" && onOpen) {
+      setOnField(false);
+      e.preventDefault();
+      return;
+    }
     if (e.key === "Escape" && saveOpen) {
       setSaveMenu(false);
       e.preventDefault();
@@ -720,7 +887,7 @@
       case "2": setBare(false); setAngle(1); break;
       case "n": nextPlay(); break;
       case "s": quickSave(); break;
-      case "e": if (curRow) { const tx = document.getElementById("a-notetx"); tx.focus(); tx.select(); } else handled = false; break;
+      case "e": if (curRow) setNote(true, true); else handled = false; break;
       case "p": prevPlay(); break;
       case "[": setRate(1 / 1.25); break;
       case "]": setRate(1.25); break;
@@ -757,6 +924,7 @@
     background:#121212;color:#e6e6e6;font:13px/1.45 "All-ProSans-Regular",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
     border-left:1px solid #282828;display:flex;flex-direction:column;box-shadow:-8px 0 30px #0008}
   #all22.hid{transform:translateX(100%)}
+  #all22 .hd,#all22-ang,#all22-note,#all22 .body,#all22 .dict,#all22 .notice{text-align:left}
   #all22.wide{width:calc(100% - 30px)}
   #all22 h2{margin:0;font-size:13px;letter-spacing:.12em;text-transform:uppercase;color:#b1924f;font-family:"AllProDisplayC-Bold","All-ProSans-Medium",sans-serif}
   #all22 .hd{padding:11px 14px;border-bottom:1px solid #282828;display:flex;justify-content:space-between;align-items:center}
@@ -765,6 +933,14 @@
      also hits NFL's player controls, which mount inside this panel -- that paints
      the play/pause/scrubber gold and buries the video. */
   #all22 .fl input,#all22 .fl select{background:#1e1e1e;border:1px solid #282828;color:#e6e6e6;padding:5px 7px;border-radius:4px;font:inherit;font-size:12px}
+  /* One control height, one arrow, everywhere in the panel. Every select draws
+     the same chevron and opens the panel's own menu (see "one dropdown"),
+     never the OS popup; a cap keeps a long option from shoving Sort onto a
+     second row. */
+  #all22 .fl input,#all22 .fl select,#all22 .fl button,#all22 .pchip{height:30px;box-sizing:border-box}
+  #all22 .fl select{-webkit-appearance:none;appearance:none;padding-right:24px!important;max-width:190px;
+    text-overflow:ellipsis;cursor:pointer;background-repeat:no-repeat;background-position:right 8px center;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23adadad' stroke-width='1.5'/%3E%3C/svg%3E")}
   #all22 .fl input:focus,#all22 .fl select:focus{outline:none;border-color:#b1924f}
   #all22 .fl [hidden]{display:none!important}
   #all22 .fl button,#all22 .hd button{background:#b1924f;color:#17130a;border:0;padding:6px 13px;border-radius:4px;font:600 12px inherit;cursor:pointer}
@@ -834,10 +1010,11 @@
   #all22 .st{padding:9px 14px;color:#adadad;font-size:12px}
   #all22-video{background:#000;width:100%;display:flex;justify-content:center}
   /* Fill the panel width, limited only by the height actually available:
-     100vh minus the header, the angle buttons, the note strip and one filter row. In wide mode
+     100vh minus the header, the angle buttons and one filter row. (The note
+     strip opens on demand and scrolls the list rather than shrinking this.) In wide mode
      that is roughly double the old 620px-height cap; in narrow, width:100%
      still governs. */
-  #all22-video .a22box{width:100%;max-width:calc((100vh - 256px) * 16 / 9);
+  #all22-video .a22box{width:100%;max-width:calc((100vh - 210px) * 16 / 9);
     aspect-ratio:16/9;background:#000;position:relative}
   /* NFL's player wraps the <video> in divs that size to their own defaults;
      make the chain fill the box so the picture scales with the panel */
@@ -848,14 +1025,25 @@
   #all22-video .a22box > div:not([data-a22]) > div{width:100%;height:100%}
   #all22-video video{width:100%;height:100%;object-fit:contain;background:#000}
   #all22 .pwrap{position:relative;display:inline-block}
-  #all22 .pmenu{position:absolute;top:100%;left:0;z-index:5;min-width:280px;max-height:260px;
-    overflow:auto;background:#1e1e1e;border:1px solid #282828;border-radius:4px;margin-top:3px;
-    box-shadow:0 8px 26px #000a}
-  #all22 .pmenu div{padding:7px 10px;cursor:pointer;font-size:12px;display:flex;
-    justify-content:space-between;gap:10px;align-items:baseline}
-  #all22 .pmenu div:hover,#all22 .pmenu div.sel{background:#282828}
-  #all22 .pmenu .who{color:#e6e6e6}
-  #all22 .pmenu .meta2{color:#adadad;font-size:11px;white-space:nowrap}
+  /* every menu in the panel -- player, Any filter, and each select's list --
+     is this one box: same surface, rows, hover, and current-value mark */
+  #all22 .pmenu,#all22 .a22sel{position:absolute;z-index:40;max-height:300px;overflow:auto;
+    overscroll-behavior:contain;background:#1a1a1a;border:1px solid #313131;border-radius:6px;
+    padding:4px;box-shadow:0 12px 28px rgba(0,0,0,.6);text-align:left}
+  #all22 .pmenu{top:100%;left:0;min-width:300px;margin-top:3px}
+  #all22 .pmenu div,#all22 .a22sel .it{padding:6px 10px;border-radius:4px;cursor:pointer;font-size:12px;
+    color:#e6e6e6;display:flex;justify-content:space-between;gap:12px;align-items:baseline;white-space:nowrap}
+  #all22 .pmenu div:hover,#all22 .pmenu div.sel,#all22 .a22sel .it:hover,#all22 .a22sel .it.kb{background:#282828}
+  #all22 .pmenu .who{color:#e6e6e6;overflow:hidden;text-overflow:ellipsis;min-width:0}
+  #all22 .pmenu .meta2{color:#8f8f8f;font-size:11px;white-space:nowrap;flex:none}
+  #all22 .a22sel .it.on{color:#b1924f;font-weight:600}
+  #all22 .a22sel .it.on::after{content:"\\2713";font-weight:600}
+  #all22 .a22sel .it.dis{opacity:.4;cursor:default}
+  #all22 .a22sel .g{margin:4px 6px;border-top:1px solid #2a2a2a}
+  #all22 .a22sel .g[data-l]:not([data-l=""]){border:0;margin:6px 10px 2px;color:#8f8f8f;
+    font-size:10px;letter-spacing:.08em;text-transform:uppercase}
+  #all22 .a22sel .g[data-l]:not([data-l=""])::before{content:attr(data-l)}
+  #all22 .a22sel[hidden]{display:none!important}
   #all22 .ctl{display:inline-flex;flex-direction:column;gap:3px}
   #all22 .ctl > span:first-child{font-size:10px;letter-spacing:.02em;
     color:#adadad;padding-left:2px}
@@ -998,6 +1186,41 @@
   #all22-tab{position:fixed;top:50%;right:0;z-index:2147483000;transform:translateY(-50%);
     background:#b1924f;color:#17130a;writing-mode:vertical-rl;padding:14px 6px;cursor:pointer;
     border-radius:4px 0 0 5px;font:600 11px "All-ProSans-Medium",sans-serif;letter-spacing:.14em}
+  /* ---- NFL Pro: anything answered by NFL Pro's film room is blue ---- */
+  #all22 .src{display:inline-block;font:700 9px/1.5 ui-monospace,Menlo,monospace;letter-spacing:.06em;
+    color:#6fa3dd;border:1px solid #4f8fd166;border-radius:3px;padding:0 4px;margin-left:6px;vertical-align:1px}
+  #all22 .dent .dkind .src{margin-left:0;margin-right:6px}
+  /* ---- on field: beside the video in wide view, a panel under the angle bar in half view ---- */
+  #all22 .vrow{display:flex;align-items:stretch;background:#000}
+  #all22 .vrow #all22-video{flex:1;min-width:0}
+  #a-onside{width:300px;flex:none;background:#151515;border-left:1px solid #282828;
+    overflow-y:auto;overscroll-behavior:contain;max-height:calc(100vh - 210px);text-align:left}
+  #a-onside[hidden],#a-onsheet[hidden]{display:none!important}
+  #all22 .ofwrap{position:relative;height:0;z-index:25}
+  #a-onsheet{position:absolute;left:0;right:0;top:0;background:#161616;border-bottom:1px solid #333;
+    box-shadow:0 18px 40px #000c;max-height:70vh;overflow-y:auto;overscroll-behavior:contain;text-align:left}
+  #all22 .ofh{display:flex;align-items:center;gap:8px;padding:9px 14px;border-bottom:1px solid #282828}
+  #all22 .ofh .t{color:#b1924f;font-size:11px;letter-spacing:.12em;text-transform:uppercase;font-weight:600;flex:none}
+  #all22 .ofh .s{color:#8f8f8f;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+  #all22 .ofh .sp{flex:1}
+  #all22 .ofteams{display:grid;grid-template-columns:1fr 1fr}
+  #all22 .ofteams.stack{display:block}
+  #all22 .ofteam{padding:6px 0;min-width:0}
+  #all22 .ofteams:not(.stack) .ofteam+.ofteam{border-left:1px solid #282828}
+  #all22 .ofteams.stack .ofteam+.ofteam{border-top:1px solid #282828}
+  #all22 .ofteam h4{margin:0;padding:4px 14px 6px;font-size:11px;color:#adadad;font-weight:600;letter-spacing:.04em}
+  #all22 .ofp{display:grid;grid-template-columns:34px 24px minmax(0,1fr) auto;gap:6px;align-items:center;
+    padding:3px 14px;font-size:12px;cursor:pointer;color:#e6e6e6}
+  #all22 .ofp .p{color:#8f8f8f;font:10.5px ui-monospace,Menlo,monospace}
+  #all22 .ofp .n{color:#8f8f8f;font:11px ui-monospace,Menlo,monospace;text-align:right}
+  #all22 .ofp .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #all22 .ofp .go2{opacity:0;color:#6fa3dd;font-size:11px;white-space:nowrap}
+  #all22 .ofp:hover{background:#202734}
+  #all22 .ofp:hover .go2{opacity:1}
+  #all22 .ofp.nolink{cursor:default}
+  #all22 .ofp.nolink:hover{background:none}
+  #all22 .ofmsg{padding:12px 14px;color:#8f8f8f;font-size:12px}
+  #all22 .offoot{padding:7px 14px 9px;color:#8f8f8f;font-size:10.5px;border-top:1px solid #282828}
   /* ---- saved plays: note strip, save menu, cutups view ---- */
   #all22 .a22b{background:transparent;color:#adadad;border:1px solid #282828;padding:4px 10px;
     border-radius:4px;font-family:inherit;font-size:12px;font-weight:500;cursor:pointer;white-space:nowrap}
@@ -1010,13 +1233,22 @@
   #all22-note{display:flex;gap:8px;align-items:flex-start;padding:8px 14px;
     border-bottom:1px solid #282828;background:#121212}
   #all22-note[hidden]{display:none!important}
-  #all22-note .sgrp{position:relative;flex:none}
-  #all22-note #a-save{height:30px}
+  /* the play on screen: save and note sit in the header beside Cutups */
+  #all22 .hd .sgrp{position:relative;display:inline-flex}
+  #all22 .hd button.ib:disabled{opacity:.3;cursor:default}
+  #all22 .hd button.ib:disabled:hover{color:#adadad;border-color:#282828}
+  #all22 .hd #a-save.on{color:#b1924f;border-color:#b1924f}
+  #all22 .hd #a-save.on svg{fill:currentColor}
+  #all22 .hd #a-notebtn{position:relative}
+  #all22 .hd #a-notebtn.open{color:#b1924f;border-color:#b1924f}
+  /* this play already has a note */
+  #all22 .hd #a-notebtn.has::after{content:"";position:absolute;top:3px;right:3px;
+    width:5px;height:5px;border-radius:50%;background:#b1924f}
   #all22-note textarea{flex:1;height:30px;min-height:30px;max-height:120px;resize:none;
     background:#1e1e1e;border:1px solid #282828;color:#e6e6e6;padding:6px 8px;border-radius:4px;
     font-family:inherit;font-size:12px;line-height:1.4;box-sizing:border-box}
   #all22-note textarea:focus{outline:none;border-color:#b1924f}
-  #a-savemenu{position:absolute;top:calc(100% + 6px);left:0;z-index:30;width:250px;
+  #a-savemenu{position:absolute;top:calc(100% + 6px);right:0;z-index:30;width:250px;text-align:left;
     background:#1a1a1a;border:1px solid #313131;border-radius:8px;padding:6px;
     box-shadow:0 12px 28px rgba(0,0,0,.6)}
   #a-savemenu[hidden]{display:none!important}
@@ -1052,7 +1284,9 @@
     display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
     border-left:2px solid #b1924f66;padding-left:7px}
   #all22 .row .star{color:#b1924f}
-  #all22 .row .rctl{float:right;display:flex;gap:3px;margin:0 0 4px 8px;opacity:0}
+  #all22 .row{position:relative}
+  #all22.cutmode .row{padding-right:92px}
+  #all22 .row .rctl{position:absolute;right:12px;top:8px;display:flex;gap:3px;opacity:0}
   #all22 .row:hover .rctl,#all22 .row.on .rctl{opacity:1}
   #all22 .row .rctl button{background:transparent;border:1px solid #282828;color:#8f8f8f;
     border-radius:4px;width:22px;height:22px;padding:0;cursor:pointer;font-size:11px;line-height:1}
@@ -1068,6 +1302,8 @@
     narrow: "m6 17 5-5-5-5M13 17l5-5-5-5",
     hide:   "M18 6 6 18M6 6l12 12",
     cuts:   "M12 12H3M16 6H3M12 18H3M16 12l5 3-5 3v-6Z",
+    star:   "M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z",
+    note:   "M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z",
     book:   "M12 7v14M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z",
   };
   const svg = d => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" ` +
@@ -1086,16 +1322,18 @@
     <div class="tray" id="all22-tray" title="Narrow the panel to show NFL Pro">${svg(ICON.narrow)}<span>NFL Pro</span></div>
     <div class="hd"><h2>All-22 Film Search</h2>
       <span class="btns">
+        <span class="sgrp"><button class="ib" id="a-save" title="Save this play to a cutup (S)" aria-label="Save this play to a cutup" disabled>${svg(ICON.star)}</button><div id="a-savemenu" hidden></div></span>
+        <button class="ib" id="a-notebtn" title="Note on this play (E)" aria-label="Note on this play" disabled>${svg(ICON.note)}</button>
         <button class="ib" id="all22-c" title="Cutups" aria-label="Cutups">${svg(ICON.cuts)}</button>
         <button class="ib" id="all22-d" title="Filter dictionary" aria-label="Filter dictionary">${svg(ICON.book)}</button>
         <button class="ib" id="all22-w" title="Widen the panel" aria-label="Widen the panel">${svg(ICON.wide)}</button>
         <button class="ib" id="all22-x" title="Hide the panel" aria-label="Hide the panel">${svg(ICON.hide)}</button>
       </span></div>
-    <div id="all22-video"></div>
+    <div class="vrow"><div id="all22-video"></div><div id="a-onside" hidden></div></div>
     <div id="all22-ang"></div>
+    <div class="ofwrap"><div id="a-onsheet" hidden></div></div>
     <div id="all22-note" hidden>
-      <span class="sgrp"><button class="a22b" id="a-save" title="Save this play to a cutup (S)">\u2606 Save</button><div id="a-savemenu" hidden></div></span>
-      <textarea id="a-notetx" rows="1" placeholder="Note on this play (E)" maxlength="4000"></textarea>
+      <textarea id="a-notetx" rows="1" placeholder="Note on this play. Saves as you type; Esc closes." maxlength="4000"></textarea>
     </div>
     <div class="body" id="a-body">
     <div id="a-cuthead"></div>
@@ -1109,10 +1347,11 @@
       <label class="ctl"><span>Sort</span><select id="a-order"><option value="game">By game</option><option value="epa">EPA high</option><option value="epa_asc">EPA low</option></select></label>
     </div>
     <div class="fl">
-      <span class="pwrap"><input id="a-col" placeholder="Any pbp column" size="18" autocomplete="off"><div class="pmenu" id="a-colmenu" hidden></div></span>
+      <span class="pwrap"><input id="a-col" placeholder="Any filter" size="18" autocomplete="off"><div class="pmenu" id="a-colmenu" hidden></div></span>
       <select id="a-op"><option value="eq">=</option><option value="gt">&gt;</option><option value="lt">&lt;</option><option value="gte">&ge;</option><option value="lte">&le;</option><option value="like">Contains</option><option value="notnull">Is set</option></select>
       <input id="a-val" placeholder="Value" size="7">
       <select id="a-bool" hidden><option value="1">Yes</option><option value="0">No</option></select>
+      <select id="a-nflv" hidden></select>
       <button class="g" id="a-add">+ Filter</button>
       <input id="a-text" placeholder="Text in description" size="14">
       <button id="a-go">Search</button>
@@ -1198,7 +1437,7 @@
      facts that matter go in the panel itself, once, until dismissed. The
      dismissal is keyed by NOTICE_VERSION so a materially changed notice shows
      again. Persisted through iso.js into chrome.storage.local. */
-  const NOTICE_VERSION = 1;
+  const NOTICE_VERSION = 2;          // 2: NFL Pro filters ask NFL Pro once per search
   const notice = $("div");
   notice.className = "notice";
   notice.hidden = true;
@@ -1208,7 +1447,7 @@
       <li>This needs an <b>active NFL Pro subscription</b>. Clips play in NFL Pro's own player, under your account.</li>
       <li>It is <b>unofficial</b> and not affiliated with the NFL or NFL Pro.</li>
       <li>It uses <b>undocumented endpoints</b> that can change or disappear at any time. When that happens it will stop working, and there may be no fix.</li>
-      <li><b>No video is downloaded or re-hosted.</b> Search runs on your machine; the only requests to NFL are one clip lookup per play you click.</li>
+      <li><b>No video is downloaded or re-hosted.</b> Search runs on your machine. NFL Pro is asked only when you act: one clip lookup per play you click, one query when a search uses an NFL Pro filter, and one per play for the On field list while it is showing.</li>
     </ul>
     <button id="a-notice-ok">Got it</button>`;
   q(".hd").insertAdjacentElement("afterend", notice);
@@ -1402,6 +1641,8 @@
   function loadSubs() {
     if (!picked) { skeleton = null; facets = {}; excl = new Set(); renderFacets(null); return; }
     const role = q("#a-role").value || "any";
+    // NFL Pro actions have no index facets: their plays come from NFL Pro
+    if (role.startsWith("nfl:")) { skeleton = null; facets = {}; excl = new Set(); renderFacets(null); return; }
     // no facet selections here on purpose -- the row/option set must not depend
     // on them -- but the surrounding filters still apply
     const u0 = contextParams();
@@ -1412,7 +1653,7 @@
       .catch(() => renderFacets(null));
   }
 
-  function loadRoles() {
+  function loadRoles(want) {
     const sel = q("#a-role");
     const wrap = q("#a-role-wrap");
     if (!picked) { wrap.classList.remove("on"); sel.innerHTML = ""; return; }
@@ -1424,12 +1665,35 @@
     backend("/api/player_roles?" + ur).then(d => {
       const list = d.roles || d;                     // tolerate the older shape
       sel.innerHTML = list.map(r =>
-        `<option value="${r.key}">${esc(r.label)}${r.n ? " (" + r.n + ")" : ""}</option>`).join("");
-      sel.value = d.default && list.some(r => r.key === d.default) ? d.default : "any";
+        `<option value="${r.key}">${esc(r.label)}${r.n ? " (" + r.n + ")" : ""}</option>`).join("") +
+        nflActionOptions();
+      sel.value = want && [...sel.options].some(o => o.value === want) ? want
+        : d.default && list.some(r => r.key === d.default) ? d.default : "any";
       facets = {}; excl = new Set();
       loadSubs();
       run();                                          // land on the position's default view
     }).catch(() => { sel.innerHTML = '<option value="any">Any</option>'; });
+  }
+
+  // the NFL Pro actions that fit the picked player's side of the ball
+  function nflActionOptions() {
+    if (!picked || !picked.nfl_id) return "";
+    const side = DEF_POS.test(picked.position || "") ? "def" : "off";
+    const fit = NFL_ACTIONS.filter(a => (!a.side || a.side === side)
+      && (!a.pos || a.pos.test(picked.position || "")));
+    // an unlabelled group: the panel's menu draws it as a divider
+    return `<optgroup label="">` + fit.map(a =>
+      `<option value="${a.key}">${esc(a.label)}</option>`).join("") + `</optgroup>`;
+  }
+  function nflAction() {
+    const r = picked && q("#a-role").value;
+    return r && r.startsWith("nfl:") ? NFL_ACTION_BY[r] || null : null;
+  }
+  // does the picked player fit this filter's player key? a corner is no route runner
+  function nflWho(d) {
+    if (!picked || !picked.nfl_id || !d.who) return false;
+    const def = DEF_POS.test(picked.position || "");
+    return d.who === "defenderId" ? def : d.who === "nflId" ? true : !def;
   }
 
   function playerLookup(term) {
@@ -1482,6 +1746,8 @@
       applyPush();
       relayoutSoon();
     });
+    drawAngles();
+    drawOnField();
   }
   /* ---------------- filter dictionary ----------------
      Every filterable option with nflverse's own definition and what the column
@@ -1554,12 +1820,20 @@
   function drawDict(term) {
     const list = q("#a-dlist");
     const t = (term || "").trim().toLowerCase();
-    const hits = COLLIST.filter(c => !t || c.name.toLowerCase().includes(t)
-      || c.key.toLowerCase().includes(t) || (DESCRIBE[c.key] || "").toLowerCase().includes(t));
+    const all = filterChoices().sort((a, b) => a.name.localeCompare(b.name));
+    const hits = all.filter(c => !t || c.name.toLowerCase().includes(t)
+      || c.key.toLowerCase().includes(t) || (DESCRIBE[c.key] || "").toLowerCase().includes(t)
+      || (c.nfl && c.nfl.group.toLowerCase().includes(t)));
     p.querySelector(".dcount").textContent =
-      hits.length + (t ? " of " + COLLIST.length : "") + " options";
+      hits.length + (t ? " of " + all.length : "") + " options";
     if (!hits.length) { list.innerHTML = '<div class="dempty">Nothing matches.</div>'; return; }
-    list.innerHTML = hits.map(c => `
+    list.innerHTML = hits.map(c => c.nfl ? `
+      <div class="dent" data-k="${esc(c.key)}">
+        <div class="dtop"><span class="dname">${esc(c.name)}</span>
+          <span class="dkind"><span class="src">NFL PRO</span>${esc(c.nfl.group)}${c.nfl.needs ? " · needs a player" : ""}</span></div>
+        <div class="ddesc">From NFL Pro's film room: one request per search, any season NFL Pro covers.</div>
+        <div class="dval">${c.nfl.values.map(([, l]) => `<b>${esc(l)}</b>`).join(" · ")}</div>
+      </div>` : `
       <div class="dent" data-k="${esc(c.key)}">
         <div class="dtop"><span class="dname">${esc(c.name)}</span>
           <span class="dkey">${esc(c.key)}</span>
@@ -1575,7 +1849,7 @@
     list.querySelectorAll(".dent").forEach(el => el.onclick = () => {
       const k = el.dataset.k;
       colPick = k;
-      q("#a-col").value = humanCol(k);
+      q("#a-col").value = nflDef(k) ? nflDef(k).label : humanCol(k);
       showDict(false);
       syncOpUI(k);
       hint(k);
@@ -1588,6 +1862,7 @@
       ents.forEach(e => {
         if (!e.isIntersecting) return;
         const k = e.target.dataset.k;
+        if (nflDef(k)) return;          // NFL Pro's values are listed, not profiled
         if (PROF.has(k)) return paintDictRow(k);
         dictQueue.add(k);
         any = true;
@@ -1595,6 +1870,7 @@
       if (any) dictFlush();
     }, { root: list, rootMargin: "200px" });
     list.querySelectorAll(".dent").forEach(el => {
+      if (nflDef(el.dataset.k)) return;
       dictObs.observe(el);
       if (PROF.has(el.dataset.k)) paintDictRow(el.dataset.k);
     });
@@ -1627,6 +1903,7 @@
   // ever adds options that are not there yet -- the user's selection stays.
   function loadMeta() {
     return backend("/api/meta").then(m => {
+      EMPTY = m.empty || {};
       const add = (sel, vals) => {
         const have = new Set([...q(sel).options].map(o => o.value));
         vals.forEach(v => { if (!have.has(String(v)))
@@ -1689,7 +1966,8 @@
     // loading is done; replace whatever progress text was left on screen
     const st = q("#all22-st");
     st.dataset.loaded = "1";
-    const msg = m.columns + " pbp columns are filterable — tacklers, fumbles, EPA, CPOE, personnel…";
+    const msg = m.columns + " pbp columns and " + NFLF.length +
+      " more filters — type in Any filter: tacklers, EPA, routes, coverage, pass rush…";
     // a cutup opened from a link can beat the index here; its line is the one
     // to keep, and search gets this one back when you return to it
     if (cutView && searchState) searchState.st = esc(msg);
@@ -1707,6 +1985,24 @@
   let REDUNDANT = new Set();
   let COLTYPE = {};
   let COLLIST = [];          // offered in the menu: merged columns, no raw slots
+  /* season -> columns with no value at all that season (nflverse publishes
+     participation only after the Super Bowl). "Any filter" and the dictionary
+     leave those out for the selected season rather than offer a filter that
+     cannot match; another season brings them back. */
+  let EMPTY = {};
+  function colVisible(key) {
+    const e = EMPTY[q("#a-season").value];
+    if (!e || !e.length) return true;
+    const gone = colVisible.cache && colVisible.cache.e === e ? colVisible.cache.set
+      : (colVisible.cache = { e, set: new Set(e) }).set;
+    const g = GROUPS[key];
+    return g ? g.members.some(m => !gone.has(m)) : !gone.has(key);
+  }
+  // the season's nflverse columns and NFL Pro's filters, as one list
+  function filterChoices() {
+    return COLLIST.filter(c => colVisible(c.key))
+      .concat(NFLF.map(d => ({ key: "nfl:" + d.key, name: d.label, nfl: d })));
+  }
   let COLALL = [];           // everything, so a typed-out slot key still resolves
   backend("/api/columns").then(d => {
     (d.groups || []).forEach(g => {
@@ -1740,17 +2036,23 @@
     const menu = q("#a-colmenu");
     const t = term.trim().toLowerCase();
     if (!t) { menu.hidden = true; return; }
-    const hits = COLLIST.filter(c =>
-      c.name.toLowerCase().includes(t) || c.key.toLowerCase().includes(t)).slice(0, 12);
+    // names that start with what you typed first, then the rest, A-Z
+    const hits = filterChoices().filter(c =>
+      c.name.toLowerCase().includes(t) || c.key.toLowerCase().includes(t)
+      || (c.nfl && c.nfl.group.toLowerCase().includes(t)))
+      .sort((a, b) => (b.name.toLowerCase().startsWith(t) - a.name.toLowerCase().startsWith(t))
+                      || a.name.localeCompare(b.name))
+      .slice(0, 14);
     if (!hits.length) { menu.hidden = true; return; }
     menu.hidden = false;
     menu.innerHTML = hits.map((c, i) => `
       <div data-i="${i}">
         <span class="who">${esc(c.name)}</span>
-        <span class="meta2">${BINARY.has(c.key) ? "yes / no"
-          : c.type === "TEXT" ? "text" : "number"}</span>
+        <span class="meta2">${c.nfl ? (c.nfl.values.length <= 2 && c.nfl.values[0][1] === "Yes" ? "yes / no" : "list")
+            + (c.nfl.needs ? " · needs a player" : "")
+          : BINARY.has(c.key) ? "yes / no" : c.type === "TEXT" ? "text" : "number"}</span>
       </div>`).join("");
-    menu.querySelectorAll("div").forEach(el => el.onclick = () => {
+    menu.querySelectorAll("div[data-i]").forEach(el => el.onclick = () => {
       const c = hits[+el.dataset.i];
       colPick = c.key;
       q("#a-col").value = c.name;      // the human name is what stays on screen
@@ -1761,11 +2063,16 @@
   }
 
   // A binary column has no value to type and no operator worth choosing.
+  // An NFL Pro filter takes one of its own values, from a list.
   function syncOpUI(col) {
-    const bin = BINARY.has(col);
-    q("#a-op").hidden = bin;
-    q("#a-val").hidden = bin;
+    const d = nflDef(col);
+    const bin = !d && BINARY.has(col);
+    q("#a-op").hidden = bin || !!d;
+    q("#a-val").hidden = bin || !!d;
     q("#a-bool").hidden = !bin;
+    const nv = q("#a-nflv");
+    nv.hidden = !d;
+    nv.innerHTML = d ? d.values.map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join("") : "";
   }
 
   // typing free-text still works: resolve it back to a real column
@@ -1774,7 +2081,9 @@
     const t = q("#a-col").value.trim().toLowerCase();
     if (!t) return null;
     const exact = COLALL.find(c => c.name.toLowerCase() === t || c.key.toLowerCase() === t);
-    return exact ? exact.key : null;
+    if (exact) return exact.key;
+    const nfl = NFLF.find(d => d.label.toLowerCase() === t);
+    return nfl ? "nfl:" + nfl.key : null;
   }
 
   const NUMOPS = ["gt", "gte", "lt", "lte"];
@@ -1833,6 +2142,12 @@
 
   // A late column's note goes on its own line: it is about the selection, not
   // about the column, and it has to survive the hint being rebuilt around it.
+  // what an NFL Pro filter will do with the player you have (or have not) picked
+  function nflHint(d) {
+    if (d.needs && !(picked && nflWho(d)))
+      return `${d.label} is about one player's snaps: pick a ${d.who === "defenderId" ? "defensive " : ""}player above.`;
+    return d.who && picked && nflWho(d) ? `${d.label}: applies to ${picked.name}.` : "";
+  }
   const lateHtml = col => {
     const n = lateNote(col);
     return n ? `<div class="late${n.warn ? " warn" : ""}">${esc(n.text)}</div>` : "";
@@ -1841,6 +2156,8 @@
   // show what a column actually contains, so you are not guessing
   async function hint(col) {
     const h = q("#a-hint");
+    const d = nflDef(col);
+    if (d) { h.innerHTML = nflHint(d) ? `<span class="m">${esc(nflHint(d))}</span>` : ""; return; }
     if (!col || !COLTYPE[col]) { h.textContent = ""; return; }
     const name = esc(humanCol(col));
     const desc = DESCRIBE[col] ? ` <span class="dn">— ${esc(oneLine(DESCRIBE[col]))}</span>` : "";
@@ -1900,7 +2217,7 @@
     const out = [];
     const add = c => { if (c && !ON_ROW.has(c) && !out.includes(c)) out.push(c); };
     extra.forEach(f => {
-      if (f.op === "eq" || f.op === "isnull" || BINARY.has(f.col)) return;
+      if (f.nfl || f.op === "eq" || f.op === "isnull" || BINARY.has(f.col)) return;
       add(f.col);
     });
     const s = sortCol();
@@ -1917,7 +2234,7 @@
     sel.querySelectorAll("option[data-col]").forEach(o => o.remove());
     const seen = new Set(["epa"]);   // EPA high / low are already on the menu
     extra.forEach(f => {
-      if (seen.has(f.col) || BINARY.has(f.col) || !NUMERIC(f.col)) return;
+      if (f.nfl || seen.has(f.col) || BINARY.has(f.col) || !NUMERIC(f.col)) return;
       seen.add(f.col);
       const n = esc(humanCol(f.col)), c = esc(f.col);
       sel.insertAdjacentHTML("beforeend",
@@ -1929,6 +2246,8 @@
   }
 
   function colChipText(f) {
+    const d = nflDef(f.col);
+    if (d) return `${d.label}: ${nflValLabel(d, f.val)}`;
     // "Play action: Yes" beats "Play action = 1" in the chip and in the
     // Filters strip, which is the same string
     if (BINARY.has(f.col)) return `${humanCol(f.col)}: ${f.val === "0" ? "No" : "Yes"}`;
@@ -1942,7 +2261,7 @@
     drawSort();                 // the sorts on offer follow the filters
     const c = q("#a-colrow");
     c.innerHTML = !extra.length ? "" :
-      `<span class="lab">Column</span>` + extra.map((f, i) =>
+      `<span class="lab">Added</span>` + extra.map((f, i) =>
         `<span class="chip on" data-i="${i}">
            <button class="inc">${esc(colChipText(f))}</button>
            <button class="exc" title="Remove">&#10005;</button>
@@ -1955,6 +2274,18 @@
   }
   q("#a-add").onclick = () => {
     const col = resolveCol();
+    if (nflDef(col)) {
+      const val = q("#a-nflv").value;
+      // one value per NFL Pro filter: a second pick replaces the first
+      const at = extra.findIndex(f => f.col === col);
+      if (at !== -1) extra.splice(at, 1);
+      extra.push({ col, op: "eq", val, nfl: true });
+      q("#a-col").value = ""; colPick = null;
+      syncOpUI(null);
+      q("#a-hint").textContent = "";
+      drawChips(); run();
+      return;
+    }
     if (!col) {
       if (q("#a-col").value.trim())
         q("#a-hint").innerHTML = '<span style="color:#e0736b">Pick a column from the list</span>';
@@ -1982,10 +2313,12 @@
 
   // current result set + selection, shared by clicks and the keyboard
   let lastRows = [], selIdx = -1, lastShown = [];
+  let nflActive = null;            // the NFL Pro answer the current list is under
   // the play on screen, which outlives a re-run search or a reordered cutup
   let curRow = null;
   // saved plays (see "saved plays" below); filled from chrome.storage at load
   let NOTES = {}, CUTS = {}, lastCut = null, cutView = null, saveOpen = false;
+  let noteOpen = false;            // the note box, opened by its header button or E
 
   /* Selection is coalesced: while a clip is loading, further selections only
      move the highlight, and when the load finishes the LATEST selection is
@@ -2017,10 +2350,12 @@
           const pl = await clipFor(row);
           if (wanted !== -1) continue;        // superseded while loading; do not mount
           mount(pl);
+          drawOnField();
           q("#all22-st").textContent =
             pl.map(x => x.videoView).join(" + ") + " · " + row.old_game_id + "/" + row.play_id;
         } catch (e) {
           if (wanted !== -1 && !(e && e.api)) continue;
+          drawOnField();                      // not the last play's players
           const dead = e && e.api && (e.status === 401 || e.status === 403);
           q("#all22-st").innerHTML =
             `<span style="color:${dead ? "#e0736b" : "#e0a86b"}">${esc(e.message || String(e))}</span>`;
@@ -2049,7 +2384,7 @@
     const star = !inCut && savedIn(k).length ? '<span class="star" title="In a cutup">★</span> ' : "";
     return `<div class="row${i === selIdx ? " on" : ""}" data-i="${i}">${ctl}
         <div>${star}${esc((r.desc || "").slice(0, 150))}</div>
-        <div class="m">${esc(r.away_team)} @ ${esc(r.home_team)} · wk ${esc(String(r.week))} · Q${esc(String(r.qtr))} ${esc(r.time || "")} ·
+        <div class="m"${r.nflOnly ? ' title="Newer than the play index: no EPA or charting yet"' : ""}>${esc(r.away_team)} @ ${esc(r.home_team)} · wk ${esc(String(r.week))} · Q${esc(String(r.qtr))} ${esc(r.time || "")} ·
           ${r.down ? esc(String(r.down)) + "&amp;" + esc(String(r.ydstogo)) : "--"} ·
           <span class="${r.epa > 0 ? "pos" : "neg"}">EPA ${r.epa == null ? "--" : (+r.epa).toFixed(2)}</span> ·
           ${measures}${esc(k)}</div>
@@ -2140,22 +2475,46 @@
     flash((on ? "saved to " : "removed from ") + c.name);
   }
 
-  /* -- note strip: under the angle buttons, for the play on screen -- */
+  /* -- note box: under the angle buttons, for the play on screen. Closed until
+        its header button (or E) opens it; once open it follows you from play to
+        play until closed, so annotating a reel is not a click per play. -- */
   let noteTimer = null, noteFor = null;
   function drawNote() {
     const bar = q("#all22-note");
-    if (!curRow) { bar.hidden = true; return; }
-    bar.hidden = false;
-    const k = pkey(curRow), tx = q("#a-notetx");
-    if (noteFor !== k) {
-      flushNote();                       // the previous play's unsaved typing
-      noteFor = k;
-      tx.value = (NOTES[k] && NOTES[k].t) || "";
-      growNote();
+    if (curRow) {
+      const k = pkey(curRow), tx = q("#a-notetx");
+      if (noteFor !== k) {
+        flushNote();                     // the previous play's unsaved typing
+        noteFor = k;
+        tx.value = (NOTES[k] && NOTES[k].t) || "";
+      }
     }
+    bar.hidden = !(curRow && noteOpen);
+    if (!bar.hidden) growNote();
     drawSaveBtn();
+    drawNoteBtn();
     if (saveOpen) drawSaveMenu();
   }
+  function drawNoteBtn() {
+    const b = q("#a-notebtn");
+    const has = !!(curRow && NOTES[pkey(curRow)]);
+    b.disabled = !curRow;
+    b.classList.toggle("has", has);
+    b.classList.toggle("open", !!(curRow && noteOpen));
+    b.title = !curRow ? "Note on this play (pick a play first)"
+      : noteOpen ? "Close the note (Esc)" : has ? "This play has a note (E)" : "Note on this play (E)";
+  }
+  function setNote(open, focus) {
+    if (!open) flushNote();
+    noteOpen = !!open;
+    drawNote();
+    if (noteOpen && focus && curRow) {
+      const tx = q("#a-notetx");
+      tx.focus();
+      tx.setSelectionRange(tx.value.length, tx.value.length);
+    }
+  }
+  q("#a-notebtn").onclick = () => setNote(!noteOpen, !noteOpen);
   function growNote() {
     const tx = q("#a-notetx");
     tx.style.height = "30px";
@@ -2169,6 +2528,7 @@
     if ((NOTES[k] ? NOTES[k].t : "") === t) return;
     if (t.trim()) NOTES[k] = { t, at: Date.now() }; else delete NOTES[k];
     post("/api/note", { key: k, text: t }).catch(() => flash("note not saved — reload NFL Pro"));
+    drawNoteBtn();
     if (cutView === "list") drawLibrary(); else refreshRow(k);
   }
   function flushNote() {
@@ -2187,7 +2547,7 @@
     tx.addEventListener("keydown", e => {
       // typing is not a shortcut: keep NFL's own key handlers out of it too
       e.stopPropagation();
-      if (e.key === "Escape") { flushNote(); tx.blur(); }
+      if (e.key === "Escape") { tx.blur(); setNote(false); }
     });
   })();
 
@@ -2195,8 +2555,10 @@
   function drawSaveBtn() {
     const b = q("#a-save");
     const n = curRow ? savedIn(pkey(curRow)).length : 0;
-    b.textContent = n ? (n > 1 ? `★ In ${n} cutups` : "★ Saved") : "☆ Save";
+    b.disabled = !curRow;
     b.classList.toggle("on", !!n);
+    b.title = !curRow ? "Save to a cutup (pick a play first)"
+      : n ? `In ${n} cutup${n > 1 ? "s" : ""} (S saves to the last one)` : "Save this play to a cutup (S)";
   }
   function setSaveMenu(on) {
     saveOpen = !!on && !!curRow;
@@ -2234,7 +2596,7 @@
   q("#a-save").onclick = e => { e.stopPropagation(); setSaveMenu(!saveOpen); };
   document.addEventListener("click", e => {
     if (!saveOpen) return;
-    const g = q("#all22-note .sgrp");
+    const g = q(".hd .sgrp");
     if (g && !g.contains(e.target)) setSaveMenu(false);
   }, true);
 
@@ -2471,6 +2833,225 @@
     return c;
   }
 
+  /* ---------------- on field ----------------
+     The 22 players on the field for the play on screen, from NFL Pro's
+     summaryPlay -- one request per play, cached, and only made when the list
+     is showing: always in wide view, beside the video; in half view only while
+     its panel is open. A name is a search: every snap he played that season,
+     through the NFL Pro "On field" action. */
+  const ON_FIELD = new Map();       // play key -> summaryPlay answer (a promise)
+  const ON_FIELD_MAX = 60;
+  let onOpen = false, ofSeq = 0;
+  const POS_ORDER = ["QB", "RB", "HB", "FB", "WR", "TE", "LT", "T", "OT", "LG", "G", "OG", "C",
+    "RG", "RT", "OL", "DE", "EDGE", "DT", "NT", "DL", "OLB", "LB", "ILB", "MLB", "CB", "NB", "DB",
+    "S", "FS", "SS", "SAF", "K", "P", "LS"];
+  const posRank = x => { const i = POS_ORDER.indexOf(x); return i === -1 ? 99 : i; };
+  const short = pl => (pl.firstName ? pl.firstName[0] + "." : "") + (pl.lastName || pl.playerName || "");
+
+  function onFieldData(row) {
+    const k = pkey(row);
+    if (ON_FIELD.has(k)) return ON_FIELD.get(k);
+    const job = (async () => {
+      const uuid = await gameUuid(row);
+      if (!uuid) throw new Error("NFL Pro has no game for this play.");
+      const d = await secured("/api/plays/summaryPlay", { gameId: uuid, playId: row.play_id });
+      if (!d || (!(d.home || []).length && !(d.away || []).length))
+        throw new Error("NFL Pro lists no players for this play.");
+      return d;
+    })();
+    ON_FIELD.set(k, job);
+    job.catch(() => ON_FIELD.delete(k));        // a failure is not worth remembering
+    while (ON_FIELD.size > ON_FIELD_MAX) ON_FIELD.delete(ON_FIELD.keys().next().value);
+    return job;
+  }
+
+  function onFieldHtml(d, wide) {
+    const sc = d.schedule || {}, pl = d.play || {};
+    const homeOff = !!d.homeIsOffense;
+    const team = (arr, abbr, side) => {
+      const rows = (arr || []).slice().sort((a, b) =>
+        posRank(a.position) - posRank(b.position) || (+a.uniformNumber || 0) - (+b.uniformNumber || 0));
+      return `<div class="ofteam"><h4>${esc(abbr || "")} · ${side}</h4>` + rows.map(x =>
+        `<div class="ofp${x.nflId ? "" : " nolink"}" data-g="${esc(x.gsisId || "")}" data-n="${esc(String(x.nflId || ""))}"` +
+        ` data-f="${esc(x.firstName || "")}" data-l="${esc(x.lastName || "")}" data-pos="${esc(x.position || "")}"` +
+        `${x.nflId ? ` title="Search every snap ${esc(short(x))} played"` : ""}>` +
+        `<span class="p">${esc(x.position || "")}</span><span class="n">${esc(String(x.uniformNumber ?? ""))}</span>` +
+        `<span class="nm">${esc(short(x))}</span><span class="go2">${x.nflId ? "on-field plays →" : ""}</span></div>`).join("") +
+        `</div>`;
+    };
+    const off = team(homeOff ? d.home : d.away, homeOff ? sc.homeTeamAbbr : sc.visitorTeamAbbr, "OFFENSE");
+    const def = team(homeOff ? d.away : d.home, homeOff ? sc.visitorTeamAbbr : sc.homeTeamAbbr, "DEFENSE");
+    const when = [pl.quarter ? "Q" + pl.quarter : "", pl.gameClock || "",
+                  pl.down ? `${pl.down}&${pl.yardsToGo}` : ""].filter(Boolean).join(" · ");
+    return onFieldHead(wide, wide ? when : (pl.playDescription || "").replace(/\s+/g, " ")) +
+      `<div class="ofteams${wide ? " stack" : ""}">${off}${def}</div>` +
+      (wide ? "" : `<div class="offoot">Click a player to search every snap he played that season</div>`);
+  }
+  const onFieldHead = (wide, sub) =>
+    `<div class="ofh"><span class="t">On field</span>` +
+    (wide ? `<span class="sp"></span><span class="s">${esc(sub || "")}</span>`
+          : `<span class="s">${esc(sub || "")}</span><span class="sp"></span>` +
+            `<button class="a22b" data-ofx="1" title="Close (Esc)" aria-label="Close">✕</button>`) + `</div>`;
+
+  async function drawOnField() {
+    const sheet = q("#a-onsheet"), side = q("#a-onside");
+    const wide = p.classList.contains("wide");
+    side.hidden = !(wide && curRow);
+    sheet.hidden = !(!wide && onOpen && curRow);
+    const host = wide ? side : sheet;
+    const seq = ++ofSeq;
+    if (host.hidden) return;
+    const row = curRow, wire = () => {
+      const x = host.querySelector("[data-ofx]");
+      if (x) x.onclick = () => setOnField(false);
+      host.querySelectorAll(".ofp:not(.nolink)").forEach(el => el.onclick = () => searchOnField(el.dataset, row));
+    };
+    host.innerHTML = onFieldHead(wide, "") + '<div class="ofmsg">asking NFL Pro…</div>';
+    wire();
+    try {
+      const d = await onFieldData(row);
+      if (seq !== ofSeq) return;
+      host.innerHTML = onFieldHtml(d, wide);
+    } catch (e) {
+      if (seq !== ofSeq) return;
+      host.innerHTML = onFieldHead(wide, "") + `<div class="ofmsg">${esc(e.message || String(e))}</div>`;
+    }
+    wire();
+  }
+  function setOnField(on) {
+    onOpen = !!on;
+    drawAngles();
+    drawOnField();
+  }
+  // the panel closes on a click anywhere else, like the other menus
+  document.addEventListener("click", e => {
+    if (!onOpen || p.classList.contains("wide")) return;
+    const sheet = q("#a-onsheet"), btn = q("#all22-ang button[data-of]");
+    if (sheet.contains(e.target) || (btn && btn.contains(e.target))) return;
+    setOnField(false);
+  }, true);
+
+  // a name in the list: pick him and ask NFL Pro for every snap he was on for
+  async function searchOnField(ds, row) {
+    let rec = null;
+    try {
+      const list = await backend("/api/players?q=" + encodeURIComponent(ds.l || ""));
+      rec = (list || []).find(x => x.gsis_id === ds.g) || null;
+    } catch {}
+    picked = Object.assign(rec || { gsis_id: ds.g, name: `${ds.f} ${ds.l}`.trim(),
+                                    position: ds.pos, team: null, plays: 0 },
+                           { nfl_id: rec && rec.nfl_id ? rec.nfl_id : Number(ds.n) });
+    if (cutView) leaveCuts();
+    onOpen = false;
+    // "that season": the play's season, every week, either team
+    const sel = q("#a-season");
+    if ([...sel.options].some(o => o.value === String(row.season))) sel.value = String(row.season);
+    q("#a-week").value = "";
+    q("#a-team").value = "";
+    q("#a-player").value = "";
+    closeMenu();
+    showPicked();
+    facets = {}; excl = new Set();
+    drawAngles();
+    drawOnField();
+    loadRoles("nfl:field");
+  }
+
+  /* ---------------- one dropdown ----------------
+     A native <select> opens a list the OS draws -- white on macOS, beside our
+     dark menus. Every select in the panel opens the panel's own menu instead.
+     The select stays the source of truth: the menu only sets .value and fires
+     "change", so nothing that reads or listens to a select changes. */
+  let selMenu = null, selFor = null, selKb = -1, selItems = [];
+  function closeSel() {
+    if (selMenu) selMenu.hidden = true;
+    selFor = null; selKb = -1;
+  }
+  function pickSel(i) {
+    const it = selItems[i], sel = selFor;
+    if (!it || !it.o || it.o.disabled || !sel) return;
+    closeSel();
+    if (sel.value !== it.o.value) {
+      sel.value = it.o.value;
+      sel.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+    sel.focus();
+  }
+  function markSel(i) {
+    selKb = i;
+    selMenu.querySelectorAll(".it").forEach(el => el.classList.toggle("kb", +el.dataset.i === i));
+    const el = selMenu.querySelector(`.it[data-i="${i}"]`);
+    if (el) el.scrollIntoView({ block: "nearest" });
+  }
+  function openSel(sel) {
+    if (!selMenu) {
+      selMenu = $("div");
+      selMenu.className = "a22sel";
+      selMenu.hidden = true;
+      p.appendChild(selMenu);
+    }
+    selFor = sel;
+    selItems = [];
+    for (const node of sel.children) {
+      if (node.tagName === "OPTGROUP") {
+        selItems.push({ g: node.label || "" });
+        for (const o of node.children) selItems.push({ o });
+      } else selItems.push({ o: node });
+    }
+    selMenu.innerHTML = selItems.map((it, i) => it.o
+      ? `<div class="it${it.o.value === sel.value ? " on" : ""}${it.o.disabled ? " dis" : ""}" data-i="${i}">` +
+        `<span>${esc(it.o.textContent)}</span></div>`
+      : `<div class="g" data-l="${esc(it.g)}"></div>`).join("");
+    selMenu.querySelectorAll(".it").forEach(el => {
+      el.onmousedown = e => e.preventDefault();      // keep focus on the select
+      el.onclick = e => { e.stopPropagation(); pickSel(+el.dataset.i); };
+    });
+    // under the select, inside the panel; above it when there is no room below
+    const r = sel.getBoundingClientRect(), pr = p.getBoundingClientRect();
+    selMenu.style.minWidth = Math.max(r.width, 140) + "px";
+    selMenu.style.left = Math.max(8, Math.min(r.left - pr.left, pr.width - 220)) + "px";
+    selMenu.style.top = (r.bottom - pr.top + 3) + "px";
+    selMenu.hidden = false;
+    const mb = selMenu.getBoundingClientRect();
+    if (mb.bottom > window.innerHeight - 8 && r.top - mb.height - 3 > 8)
+      selMenu.style.top = (r.top - pr.top - mb.height - 3) + "px";
+    const cur = selItems.findIndex(it => it.o && it.o.value === sel.value);
+    if (cur !== -1) markSel(cur);
+  }
+  p.addEventListener("mousedown", e => {
+    const sel = e.target && e.target.closest && e.target.closest("select");
+    // ours only: NFL's player mounts inside the panel and keeps its own controls
+    if (!sel || sel.disabled || sel.closest("#all22-video")) return;
+    e.preventDefault();                               // no OS popup
+    if (selFor === sel) { closeSel(); return; }
+    sel.focus();
+    openSel(sel);
+  }, true);
+  // the keys that would open the OS popup open ours; with ours open, they drive it
+  p.addEventListener("keydown", e => {
+    const t = e.target;
+    if (selFor) {
+      const live = selItems.map((it, i) => (it.o && !it.o.disabled ? i : -1)).filter(i => i !== -1);
+      const at = live.indexOf(selKb);
+      if (e.key === "ArrowDown") markSel(live[Math.min(live.length - 1, at + 1)]);
+      else if (e.key === "ArrowUp") markSel(live[Math.max(0, at - 1)]);
+      else if (e.key === "Enter" || e.key === " ") pickSel(selKb);
+      else if (e.key === "Escape" || e.key === "Tab") { closeSel(); if (e.key === "Tab") return; }
+      else return;
+      e.preventDefault(); e.stopPropagation();
+      return;
+    }
+    if (t && t.tagName === "SELECT" && !t.closest("#all22-video") && [" ", "Enter", "ArrowDown", "ArrowUp"].includes(e.key)) {
+      e.preventDefault(); e.stopPropagation();
+      openSel(t);
+    }
+  }, true);
+  document.addEventListener("mousedown", e => {
+    if (selFor && !selMenu.contains(e.target) && e.target !== selFor) closeSel();
+  }, true);
+  q("#a-body").addEventListener("scroll", closeSel);
+  window.addEventListener("resize", closeSel);
+
   // load the library, then take any cutup that arrived by link
   backend("/api/library").then(lib => {
     NOTES = (lib && lib.notes) || {};
@@ -2500,7 +3081,9 @@
     }
     const tx = q("#a-text").value.trim();
     if (tx) u.append("q", tx);
-    extra.forEach(f => push(f.col, f.op, f.val));
+    extra.forEach(f => { if (!f.nfl) push(f.col, f.op, f.val); });
+    // narrowed to what NFL Pro answered, when the search asked it anything
+    if (nflActive) u.set("ids", nflActive.keys.join(","));
     return u;
   }
 
@@ -2509,7 +3092,9 @@
   // reports is the range of what you are looking at.
   function scopeParams() {
     const u = contextParams();
-    if (picked) {
+    // an NFL Pro action is answered by NFL Pro alone: the index's participation
+    // columns never record a snap he only lined up for
+    if (picked && !nflAction()) {
       u.set("player", picked.gsis_id);
       const role = q("#a-role").value;
       if (role && role !== "any") u.set("role", role);   // scope the stat to HIM
@@ -2519,36 +3104,115 @@
     return u;
   }
 
-  function run() {
+  /* The NFL Pro half of a search, as film-room params; null when nothing in
+     it asks NFL Pro anything, { error } when it cannot be asked yet. */
+  function nflQuery() {
+    const act = nflAction();
+    const fs = extra.filter(f => f.nfl);
+    if (!act && !fs.length) return null;
+    const params = nflWhen(q("#a-season").value, q("#a-week").value);
+    const id = picked && picked.nfl_id;
+    if (act) {
+      if (!id) return { error: `NFL Pro has no id for ${picked.name}.` };
+      params[act.who] = id;
+      Object.assign(params, act.set || {});
+    }
+    for (const f of fs) {
+      const d = nflDef(f.col);
+      if (!d) continue;
+      if (d.needs && !nflWho(d)) return { error: nflHint(d) };
+      params[d.key] = f.val;
+      if (nflWho(d) && !(d.who in params)) params[d.who] = id;
+    }
+    return params;
+  }
+  // anything besides season, week and team that the index alone can judge
+  function localNarrowing() {
+    return extra.some(f => !f.nfl) || !!q("#a-text").value.trim() || !!q("#a-type").value
+      || (picked && !nflAction()) || (!picked && !!q("#a-player").value.trim());
+  }
+
+  const warnHtml = t => `<span style="color:#e0a86b">${esc(t)}</span>`;
+  const errHtml = t => `<span style="color:#e0736b">${esc(t)}</span>`;
+  let runSeq = 0;
+  async function run() {
+    const seq = ++runSeq;           // a newer search makes this one moot
+    const st = q("#all22-st");
+    dictFlush();                    // the dictionary, if open, describes the new scope
+    q("#all22-res").innerHTML = "";
+    const settle = (rows, shown) => {
+      lastRows = rows; selIdx = -1; lastShown = shown;
+      drawRows();
+    };
+
+    // 1. NFL Pro, when the search asks it anything: one request, or none if cached
+    const np = nflQuery();
+    nflActive = null;
+    let nfl = null;
+    if (np && np.error) { st.innerHTML = warnHtml(np.error); settle([], []); return; }
+    if (np) {
+      st.textContent = "asking NFL Pro…";
+      try { nfl = await nflPlays(np); }
+      catch (e) { if (seq === runSeq) { st.innerHTML = errHtml(e.message || String(e)); settle([], []); } return; }
+      if (seq !== runSeq) return;
+      nflActive = nfl;
+    }
+
+    // 2. the index, narrowed to NFL Pro's plays and then by everything else
     const u = scopeParams();
-    dictFlush();                 // the dictionary, if open, describes the new scope
     u.set("order", q("#a-order").value);
     // read once: the rows are rendered against the same list that asked for them
     const shown = showCols();
     if (shown.length) u.set("show", shown.join(","));
-    u.set("limit", "300");
+    u.set("limit", nfl ? "1000" : "300");
+    st.textContent = "searching…";
+    let rows;
+    try { rows = await backend(`/api/search?${u}`); }
+    catch (e) { if (seq === runSeq) st.innerHTML = errHtml(String(e)); return; }
+    if (seq !== runSeq) return;
+    if (rows.error) { st.innerHTML = errHtml(rows.error); return; }
 
-    q("#all22-st").textContent = "searching…";
-    q("#all22-res").innerHTML = "";
-    backend(`/api/search?${u}`).then(rows => {
-      if (rows.error) { q("#all22-st").innerHTML = `<span style="color:#e0736b">${esc(rows.error)}</span>`; return; }
-      if (!rows.length) {
-        const sus = extra.filter(f => COLTYPE[f.col] === "TEXT" && NUMOPS.includes(f.op));
-        // the whole point of tracking the lag: an empty result on a charting
-        // column is usually the charting, not the football
-        const late = extra.map(f => lateNote(f.col)).find(n => n && n.warn);
-        q("#all22-st").innerHTML = "0 plays" + (sus.length
-          ? ` — <span style="color:#e0a86b">${esc(humanCol(sus[0].col))} is text; “${esc(OPSYM[sus[0].op] || sus[0].op)}” can’t match</span>`
-          : late ? ` — <span style="color:#e0a86b">${esc(late.text)}</span>`
-          : " — try removing a filter");
-      } else {
-        q("#all22-st").textContent = rows.length + " plays";
+    // 3. plays NFL Pro has and the index does not yet (nflverse runs hours
+    //    behind): shown from NFL's own fields, unless a filter only the index
+    //    can judge is in play -- then they are counted, not guessed at
+    let newer = [], missing = 0;
+    if (nfl && nfl.count) {
+      let known;
+      try { known = new Set(await backend("/api/known?ids=" + encodeURIComponent(nfl.keys.join(",")))); }
+      catch { known = new Set(nfl.keys); }
+      if (seq !== runSeq) return;
+      const absent = nfl.keys.filter(k => !known.has(k));
+      missing = absent.length;
+      if (missing && !localNarrowing()) {
+        const team = q("#a-team").value;
+        newer = absent.map(k => nflRow(nfl.plays.get(k)))
+          .filter(r => !team || r.posteam === team || r.defteam === team);
       }
-      lastRows = rows;
-      selIdx = -1;
-      lastShown = shown;
-      drawRows();
-    }).catch(e => { q("#all22-st").innerHTML = `<span style="color:#e0736b">${esc(String(e))}</span>`; });
+    }
+    rows = rows.concat(newer);
+
+    if (nfl) {
+      const n = v => v + (v === 1 ? " play" : " plays");
+      // two stages, one sentence: what matched, then what your other filters kept
+      st.innerHTML = (localNarrowing() ? `${n(rows.length - newer.length)} · ${nfl.count} before your other filters`
+                                       : n(rows.length)) +
+        (newer.length ? ` · ${newer.length} newer than the play index`
+          : missing ? ` · ${missing} not in the play index yet` : "") +
+        (!rows.length && nfl.count ? " — try removing a filter" : "");
+    } else if (!rows.length) {
+      const sus = extra.filter(f => COLTYPE[f.col] === "TEXT" && NUMOPS.includes(f.op));
+      // the whole point of tracking the lag: an empty result on a charting
+      // column is usually the charting, not the football
+      const late = extra.map(f => lateNote(f.col)).find(n => n && n.warn);
+      st.innerHTML = "0 plays" + (sus.length
+        ? ` — <span style="color:#e0a86b">${esc(humanCol(sus[0].col))} is text; “${esc(OPSYM[sus[0].op] || sus[0].op)}” can’t match</span>`
+        : late ? ` — <span style="color:#e0a86b">${esc(late.text)}</span>`
+        : " — try removing a filter");
+    } else {
+      st.textContent = rows.length + " plays";
+    }
+    settle(rows, shown);
+    if (nfl) refreshCounts();       // facet counts asked before NFL Pro answered
   }
   applyPush();
   q("#a-player").addEventListener("input", e => {

@@ -9,8 +9,10 @@ click a play, and watch that clip in NFL Pro's own player, in a side panel on
 
 **Unofficial, unaffiliated, and fragile.** It relies on undocumented NFL Pro
 endpoints that can change or disappear at any time, with no fix. No video is
-downloaded, cached, or re-hosted. Search is entirely local: the only requests
-the extension makes to NFL are one clip lookup per play you click.
+downloaded, cached, or re-hosted. Search runs locally. NFL Pro is asked only
+when you act: one clip lookup per play you click, one film-room query when a
+search uses an NFL Pro filter (on field, routes run, coverage, pass rush...), and
+one lookup per play for the On field list while it is showing.
 
 - Install and notes: see the landing page in `docs/` (published via GitHub Pages)
 - Licence: MIT for the code; data and definitions credits in [`NOTICE.md`](NOTICE.md)
@@ -101,7 +103,24 @@ Booleans take `1`; enums take the UI token (`play_type_pass`, `11_PERSONNEL`,
 `weekSlug`: `WEEK_1`..`WEEK_18` (REG), `WC`/`DIV`/`CONF`/`SB` (POST),
 `HOF`/`P1`..`P4` (PRE).
 
-### 5. Other endpoints seen
+### 5. NFL Pro filters in search (probed live 2026-10-27)
+
+`/api/secured/videos/filmroom/plays` needs no `gameId`: a whole league season
+(7,625 pass plays, ~4 MB) comes back in one response, unpaged, as
+`{count, plays[]}`. A response with `code`, or a count with no plays, is NFL
+Pro's "too many plays". Player keys (`nflId`, `routeRunnerId`, `defenderId`,
+`targetId`, ...) scope the other keys to that player: `defenderId` +
+`coverageSnap=1` is his coverage snaps. The panel offers 32 of the 78 keys in
+"Any filter" (the ones nflverse and FTN lack in season) and six as player
+actions; the list and its rationale are `NFLF` / `NFL_ACTIONS` in `panel.js`.
+A search sends one such query, then narrows the index with `ids=` to the plays
+it named (`db.js baseFilters`, mirrored in `server.py`).
+
+`/api/plays/summaryPlay?gameId&playId` (not secured) lists the 22 players on
+the field with `nflId` and `gsisId`. `/api/secured/plays/playlist/game?gameId=<UUID>`
+returns every play of a game with `nflIds` (all 22) and `playStats`.
+
+### 6. Other endpoints seen
 
 `/api/secured/plays/playlist/game`, `/api/secured/plays/winProbability`,
 `/api/videos/filmSavedSearches` + `addSavedSearch`/`deleteSavedSearch`

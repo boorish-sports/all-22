@@ -75,7 +75,12 @@ async function route(url, init) {
     const m = await uuidMap();
     if (init && init.method === "POST") {
       const b = JSON.parse(init.body);
-      m[String(b.old_game_id)] = b.fapi_game_id;
+      if (b.many && typeof b.many === "object") {
+        for (const [k, v] of Object.entries(b.many))
+          if (/^\d{10}$/.test(k) && typeof v === "string") m[k] = v;
+      } else {
+        m[String(b.old_game_id)] = b.fapi_game_id;
+      }
       await chrome.storage.local.set({ [UUID_KEY]: m });
       return { ok: true };
     }
@@ -86,7 +91,7 @@ async function route(url, init) {
                "/api/values": "values", "/api/search": "search",
                "/api/players": "players", "/api/player_roles": "player_roles",
                "/api/player_subfilters": "player_subfilters",
-               "/api/status": "status", "/api/plays": "plays" }[p];
+               "/api/status": "status", "/api/plays": "plays", "/api/known": "known" }[p];
   if (!op) throw new Error("no route " + p);
 
   // Object.fromEntries keeps only the LAST value of a repeated key, which would

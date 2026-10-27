@@ -45,14 +45,19 @@ code{background:#1e1e1e;border:1px solid #282828;border-radius:4px;padding:1px 6
     sees this request the way it sees any download; the extension sends no identifying information.</li>
     <li><strong>NFL Pro</strong> (<code>pro.nfl.com</code>). When you click a play, the extension asks NFL Pro
     for that clip using the same requests NFL Pro's own film room makes, under your own logged-in
-    session. NFL therefore sees which clips you open, exactly as it would if you clicked them on the site.
-    The extension makes no NFL request that you did not initiate by selecting a play; it does not
-    prefetch, poll, or enumerate.</li>
+    session. The same goes for a search that uses an NFL Pro filter (marked <em>NFL PRO</em> in the panel):
+    the extension sends that one film-room query, as NFL Pro's own film room does when you set a filter
+    there. While the <em>On field</em> list is showing (always in the wide view, in the half view only when you
+open it), each play you open also asks NFL Pro who was on the field for it. NFL therefore sees which clips you
+open and which NFL Pro filters you search with, exactly as it
+    would on the site. Searches that use only the local index send nothing. The extension makes no NFL
+    request you did not start by selecting a play or running such a search; it does not prefetch, poll,
+    or enumerate.</li>
   </ul>
 
   <h2>What the extension does not do</h2>
   <ul>
-    <li>It does not collect, transmit, or sell personal information, browsing history, or search terms.</li>
+    <li>It does not collect, transmit, or sell personal information, browsing history, or search terms. The one exception is the NFL Pro filters described above, which NFL Pro sees because it answers them.</li>
     <li>It does not download, copy, cache, or re-host video.</li>
     <li>It does not read or store your NFL Pro credentials. It uses the page's own session.</li>
     <li>It does not run on any site other than <code>pro.nfl.com</code>.</li>

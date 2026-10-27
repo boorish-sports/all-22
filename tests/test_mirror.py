@@ -49,6 +49,14 @@ def build_cases(con):
         "SELECT play_id FROM plays WHERE old_game_id=? ORDER BY play_id LIMIT 5", (g,))]
     op("plays", "plays", "ids=" + ",".join("%s/%s" % (g, x) for x in pids) + ",%s/999999,bad,1/2" % g)
     op("plays_empty", "plays", "ids=")
+    # a search narrowed to an NFL Pro play list, alone and under other filters;
+    # junk ids are dropped, a list with no valid id matches nothing
+    idq = "ids=" + ",".join("%s/%s" % (g, x) for x in pids) + ",%s/999999,bad" % g
+    op("search_ids", "search", idq + "&order=game")
+    op("search_ids_filtered", "search", idq + "&f=down:eq:1&order=epa")
+    op("search_ids_junk", "search", "ids=bad,1/2&order=game")
+    op("values_ids", "values", idq + "&cols=down,play_type,epa")
+    op("known", "known", idq)
 
     # profiles: every merged column, every 6th raw column, and the ones with a
     # story (play_clock all-zero, epa numeric, desc free text, sack flag)

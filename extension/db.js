@@ -206,7 +206,7 @@ function swapIn(h, man, progress) {
   meta = man;
   if (old) {
     // everything derived from the schema or the data was read off the old index
-    schema = null; _binary = null; _redundant = null; _groups = null; _shape.clear();
+    schema = null; _binary = null; _redundant = null; _groups = null; _shape.clear(); _empty = null;
     old.close();
     progress && progress({ stage: "refreshed", rows: man.rows });
   }
@@ -427,6 +427,22 @@ function lateSources() {
 
    Every query here is answered from idx_sw, so the whole thing is ~35 ms
    regardless of how many seasons have stacked up. Mirrors server.py. */
+/* One pass over the index: every column's filled count per season. A column
+   that is NULL for a whole season (nflverse publishes participation only after
+   the Super Bowl) is listed under that season. Mirrors server.py. */
+let _empty = null;
+function emptyBySeason() {
+  if (_empty) return _empty;
+  const names = Object.keys(cols());
+  const sel = names.map(c => `COUNT("${c}")`).join(",");
+  const out = {};
+  for (const row of db.selectArrays(`SELECT season, ${sel} FROM plays GROUP BY season ORDER BY season`)) {
+    const [season, ...n] = row;
+    out[season] = names.filter((_, i) => !n[i]).sort();
+  }
+  return (_empty = out);
+}
+
 function lateCoverage() {
   const out = [], c = cols();
   const season = db.selectArrays("SELECT MAX(season) FROM plays")[0][0];
@@ -740,7 +756,29 @@ function baseFilters(q) {
     where.push(`"desc" LIKE ?`);
     args.push("%" + t.trim() + "%");
   }
+  // ids=<old_game_id/play_id,...>: only these plays -- the list an NFL Pro
+  // film-room query returned. Present but holding no valid id matches nothing.
+  if (q.ids !== undefined) {
+    const keys = idList(q.ids);
+    if (!keys.length) where.push("0");
+    else {
+      where.push(`(old_game_id || '/' || play_id) IN (SELECT value FROM json_each(?))`);
+      args.push(JSON.stringify(keys));
+    }
+  }
   return [where, args];
+}
+
+// "2026102505/1611,..." -> the well-formed keys, deduplicated. Mirrors server.py.
+const IDS_MAX = 20000;
+function idList(s) {
+  const out = new Set();
+  for (const k of String(s || "").split(",")) {
+    const m = /^(\d{10})\/(\d{1,6})$/.exec(k.trim());
+    if (m) out.add(m[1] + "/" + Number(m[2]));
+    if (out.size >= IDS_MAX) break;
+  }
+  return [...out];
 }
 
 /* Everything that narrows the play list: the base filters, the facet selection
@@ -962,6 +1000,9 @@ async function handle(op, payload) {
       // columns that arrive days after the play, and how far each one has got
       // -- the panel flags them where they are picked
       late: lateCoverage(),
+      // per season, the columns with no value at all -- the panel leaves them
+      // out of "Any filter" there rather than offer a filter that cannot match
+      empty: emptyBySeason(),
     };
   }
   if (op === "columns") {
@@ -1116,6 +1157,16 @@ async function handle(op, payload) {
   }
   if (op === "search") return search(payload);
   if (op === "plays") return playsById(payload);
+  if (op === "known") {
+    // which of these plays the index already has: NFL Pro can be a few hours
+    // ahead of nflverse, and the panel shows those plays from NFL's own fields
+    const keys = idList(payload.ids);
+    if (!keys.length) return [];
+    return db.selectArrays(
+      `SELECT old_game_id || '/' || play_id FROM plays
+        WHERE (old_game_id || '/' || play_id) IN (SELECT value FROM json_each(?))
+        ORDER BY 1`, [JSON.stringify(keys)]).map(r => r[0]);
+  }
   return { error: "unknown op " + op };
 }
 
