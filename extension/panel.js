@@ -1161,9 +1161,10 @@
   #all22-pop .tg{padding:3px 11px;font-size:11px}
   #all22-pop .pnote{color:#7d7d7d;font-size:10.5px;line-height:1.35;
     padding:5px 0 0;border-top:1px solid #262626;margin-top:4px}
-  #all22-ang .khint{color:#a3a3a3;font-size:11px;cursor:pointer;margin-left:10px}
+  #all22-ang .khint{color:#a3a3a3;font-size:11px;line-height:1;cursor:pointer;margin-left:10px;white-space:nowrap}
   #all22-ang .khint:hover{color:#b1924f}
-  #all22-ang{display:flex;gap:6px;padding:8px 14px;background:#121212;border-bottom:1px solid #282828}
+  /* centred, so the keyboard hint sits on the buttons' midline, not their top edge */
+  #all22-ang{display:flex;align-items:center;gap:6px;padding:8px 14px;background:#121212;border-bottom:1px solid #282828}
   /* Wide mode covers the page instead of squeezing it into a sliver. This strip
      rides just outside the panel's left edge (translateX(-100%)) and is the way
      back: one click narrows the panel and the page reflows beside it again. */
@@ -1215,6 +1216,7 @@
   #all22 .ofh{display:flex;align-items:center;gap:8px;padding:9px 14px;border-bottom:1px solid #282828}
   #all22 .ofh .t{color:#b1924f;font-size:11px;letter-spacing:.12em;text-transform:uppercase;font-weight:600;flex:none}
   #all22 .ofh .s{color:#8f8f8f;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+  #all22 #a-onside .ofh .s{color:#cfcfcf;font-size:12px}
   #all22 .ofh .sp{flex:1}
   #all22 .ofteams{display:grid;grid-template-columns:1fr 1fr}
   /* Wide view: On field fills the rest of the stage under the video, offense
@@ -2898,7 +2900,25 @@
     return job;
   }
 
-  function onFieldHtml(d, wide) {
+  /* "NE @ JAX · Week 3 · Q3 · 04:28 · 3rd & 9": the game, the week and the
+     moment, in the order you would say them. The play's own row supplies the
+     week (summaryPlay's schedule names teams, not always the week). */
+  const ORD = { 1: "1st", 2: "2nd", 3: "3rd", 4: "4th" };
+  const POST_WEEK = { WC: "Wild Card", DIV: "Divisional", CONF: "Conference", SB: "Super Bowl" };
+  function gameLine(d, row) {
+    const sc = d.schedule || {}, pl = d.play || {};
+    const away = sc.visitorTeamAbbr || (row && row.away_team) || "";
+    const home = sc.homeTeamAbbr || (row && row.home_team) || "";
+    const slug = (row && row.week_slug) || "";
+    const week = POST_WEEK[slug] || (row && row.week ? "Week " + row.week : sc.week ? "Week " + sc.week : "");
+    const q = Number(pl.quarter);
+    return [away && home ? `${away} @ ${home}` : "", week,
+            q ? (q > 4 ? (q > 5 ? "OT" + (q - 4) : "OT") : "Q" + q) : "",
+            pl.gameClock || "",
+            ORD[pl.down] ? `${ORD[pl.down]} & ${pl.yardsToGo}` : ""].filter(Boolean).join(" \u00b7 ");
+  }
+
+  function onFieldHtml(d, wide, row) {
     const sc = d.schedule || {}, pl = d.play || {};
     const homeOff = !!d.homeIsOffense;
     const team = (arr, abbr, side) => {
@@ -2914,9 +2934,7 @@
     };
     const off = team(homeOff ? d.home : d.away, homeOff ? sc.homeTeamAbbr : sc.visitorTeamAbbr, "OFFENSE");
     const def = team(homeOff ? d.away : d.home, homeOff ? sc.visitorTeamAbbr : sc.homeTeamAbbr, "DEFENSE");
-    const when = [pl.quarter ? "Q" + pl.quarter : "", pl.gameClock || "",
-                  pl.down ? `${pl.down}&${pl.yardsToGo}` : ""].filter(Boolean).join(" · ");
-    return onFieldHead(wide, wide ? when : (pl.playDescription || "").replace(/\s+/g, " ")) +
+    return onFieldHead(wide, wide ? gameLine(d, row) : (pl.playDescription || "").replace(/\s+/g, " ")) +
       `<div class="ofteams">${off}${def}</div>` +
       (wide ? "" : `<div class="offoot">Click a player to search every snap he played that season</div>`);
   }
@@ -2944,7 +2962,7 @@
     try {
       const d = await onFieldData(row);
       if (seq !== ofSeq) return;
-      host.innerHTML = onFieldHtml(d, wide);
+      host.innerHTML = onFieldHtml(d, wide, row);
     } catch (e) {
       if (seq !== ofSeq) return;
       host.innerHTML = onFieldHead(wide, "") + `<div class="ofmsg">${esc(e.message || String(e))}</div>`;
