@@ -1193,11 +1193,21 @@
   #all22 .src{display:inline-block;font:700 9px/1.5 ui-monospace,Menlo,monospace;letter-spacing:.06em;
     color:#6fa3dd;border:1px solid #4f8fd166;border-radius:3px;padding:0 4px;margin-left:6px;vertical-align:1px}
   #all22 .dent .dkind .src{margin-left:0;margin-right:6px}
-  /* ---- on field: beside the video in wide view, a panel under the angle bar in half view ---- */
+  /* ---- layout: the stage (video, angles, note, On field) over the list in
+       half view; side by side in wide view, so the filters and the play list
+       get the full height instead of a strip under a full-width picture ---- */
+  #all22 .a22main{flex:1;min-height:0;display:flex;flex-direction:column}
+  #all22 .a22stage{flex:none;display:flex;flex-direction:column;min-width:0}
+  #all22 .a22list{flex:1;min-height:0;display:flex;flex-direction:column;min-width:0}
+  #all22.wide .a22main{flex-direction:row}
+  #all22.wide .a22stage{flex:1.55 1 0;min-height:0;overflow-y:auto;overscroll-behavior:contain;
+    border-right:1px solid #282828;background:#121212}
+  #all22.wide .a22list{flex:1 1 0}
+  /* in wide view the picture leaves room under it for the angle bar and the
+     22-man On field list (~280px), and is otherwise as big as the column */
+  #all22.wide #all22-video .a22box{max-width:calc((100vh - 340px) * 16 / 9)}
   #all22 .vrow{display:flex;align-items:stretch;background:#000}
   #all22 .vrow #all22-video{flex:1;min-width:0}
-  #a-onside{width:300px;flex:none;background:#151515;border-left:1px solid #282828;
-    overflow-y:auto;overscroll-behavior:contain;max-height:calc(100vh - 210px);text-align:left}
   #a-onside[hidden],#a-onsheet[hidden]{display:none!important}
   #all22 .ofwrap{position:relative;height:0;z-index:25}
   #a-onsheet{position:absolute;left:0;right:0;top:0;background:#161616;border-bottom:1px solid #333;
@@ -1207,25 +1217,23 @@
   #all22 .ofh .s{color:#8f8f8f;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
   #all22 .ofh .sp{flex:1}
   #all22 .ofteams{display:grid;grid-template-columns:1fr 1fr}
-  /* Wide view: the column is exactly the video's height, and the 22 rows
-     share it -- every player on screen, no scrolling. Type scales with that
-     height (cqh, the column's own height) between a readable floor and the
-     half-view size; below the floor the column scrolls rather than overlap. */
-  #a-onside{container-type:size;display:flex;flex-direction:column;
-    /* a floor for while the clip is still loading, or failed to */
-    min-height:min(360px,calc(100vh - 210px))}
-  #a-onside .ofh{flex:none;padding:clamp(4px,1.4cqh,9px) 14px}
-  #all22 .ofteams.stack{flex:1 1 auto;min-height:0;display:flex;flex-direction:column}
-  #all22 .ofteams.stack .ofteam{flex:1 1 0;min-height:0;display:flex;flex-direction:column;padding:2px 0}
-  #all22 .ofteams.stack .ofteam h4{flex:none;padding:clamp(1px,.6cqh,4px) 14px;font-size:clamp(9px,2.1cqh,11px)}
-  #all22 .ofteams.stack .ofp{flex:1 1 0;min-height:13px;padding-top:0;padding-bottom:0;
-    font-size:clamp(10px,2.4cqh,12px)}
-  #all22 .ofteams.stack .ofp .p{font-size:clamp(9px,2.1cqh,10.5px)}
-  #all22 .ofteams.stack .ofp .n{font-size:clamp(9px,2.2cqh,11px)}
-  #all22 .ofteams.stack .ofp .go2{font-size:clamp(9px,2.1cqh,11px)}
+  /* Wide view: On field fills the rest of the stage under the video, offense
+     and defense side by side, and the 11 rows of each share that height --
+     every player on screen, no scrolling. Type scales with the list's own
+     height (cqh) between a readable floor and the half-view size; below the
+     floor it scrolls rather than overlap. */
+  #a-onside{flex:1 1 auto;min-height:230px;container-type:size;display:flex;flex-direction:column;
+    background:#151515;border-top:1px solid #282828;overflow-y:auto;overscroll-behavior:contain;text-align:left}
+  #all22 #a-onside .ofh{flex:none;padding:clamp(4px,2.4cqh,9px) 14px}
+  #all22 #a-onside .ofteams{flex:1 1 auto;min-height:0}
+  #all22 #a-onside .ofteam{display:flex;flex-direction:column;min-height:0;padding:2px 0}
+  #all22 #a-onside .ofteam h4{flex:none;padding:clamp(1px,1.2cqh,4px) 14px;font-size:clamp(9px,3.8cqh,11px)}
+  #all22 #a-onside .ofp{flex:1 1 0;min-height:14px;padding-top:0;padding-bottom:0;font-size:clamp(10px,4.6cqh,12.5px)}
+  #all22 #a-onside .ofp .p{font-size:clamp(9px,4cqh,10.5px)}
+  #all22 #a-onside .ofp .n{font-size:clamp(9px,4.2cqh,11px)}
+  #all22 #a-onside .ofp .go2{font-size:clamp(9px,4cqh,11px)}
   #all22 .ofteam{padding:6px 0;min-width:0}
-  #all22 .ofteams:not(.stack) .ofteam+.ofteam{border-left:1px solid #282828}
-  #all22 .ofteams.stack .ofteam+.ofteam{border-top:1px solid #282828}
+  #all22 .ofteams .ofteam+.ofteam{border-left:1px solid #282828}
   #all22 .ofteam h4{margin:0;padding:4px 14px 6px;font-size:11px;color:#adadad;font-weight:600;letter-spacing:.04em}
   #all22 .ofp{display:grid;grid-template-columns:34px 24px minmax(0,1fr) auto;gap:6px;align-items:center;
     padding:3px 14px;font-size:12px;cursor:pointer;color:#e6e6e6}
@@ -1347,12 +1355,17 @@
         <button class="ib" id="all22-w" title="Widen the panel" aria-label="Widen the panel">${svg(ICON.wide)}</button>
         <button class="ib" id="all22-x" title="Hide the panel" aria-label="Hide the panel">${svg(ICON.hide)}</button>
       </span></div>
-    <div class="vrow"><div id="all22-video"></div><div id="a-onside" hidden></div></div>
+    <div class="a22main">
+    <div class="a22stage">
+    <div class="vrow"><div id="all22-video"></div></div>
     <div id="all22-ang"></div>
     <div class="ofwrap"><div id="a-onsheet" hidden></div></div>
     <div id="all22-note" hidden>
       <textarea id="a-notetx" rows="1" placeholder="Note on this play. Saves as you type; Esc closes." maxlength="4000"></textarea>
     </div>
+    <div id="a-onside" hidden></div>
+    </div>
+    <div class="a22list">
     <div class="body" id="a-body">
     <div id="a-cuthead"></div>
     <div class="fl">
@@ -1396,6 +1409,8 @@
       <div class="dfoot">Definitions from <a href="https://github.com/nflverse/nflreadr" target="_blank" rel="noopener">nflreadr</a> (MIT).
         Play data from <a href="https://github.com/nflverse/nflverse-data" target="_blank" rel="noopener">nflverse</a> (CC BY 4.0),
         charting by FTN Data via nflverse. Not affiliated with the NFL, NFL Pro, nflverse or FTN.</div>
+    </div>
+    </div>
     </div>`;
   document.documentElement.appendChild(p);
 
@@ -2902,7 +2917,7 @@
     const when = [pl.quarter ? "Q" + pl.quarter : "", pl.gameClock || "",
                   pl.down ? `${pl.down}&${pl.yardsToGo}` : ""].filter(Boolean).join(" · ");
     return onFieldHead(wide, wide ? when : (pl.playDescription || "").replace(/\s+/g, " ")) +
-      `<div class="ofteams${wide ? " stack" : ""}">${off}${def}</div>` +
+      `<div class="ofteams">${off}${def}</div>` +
       (wide ? "" : `<div class="offoot">Click a player to search every snap he played that season</div>`);
   }
   const onFieldHead = (wide, sub) =>
