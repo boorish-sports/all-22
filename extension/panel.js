@@ -1002,7 +1002,10 @@
   #all22 .notice button{background:#b1924f;color:#17130a;border:0;padding:5px 12px;
     border-radius:4px;font:600 12px inherit;cursor:pointer}
 
-  #all22 .row{padding:9px 14px;border-bottom:1px solid #232323;cursor:pointer}
+  /* display and margin are asserted: NFL Pro's UI framework styles every
+     ".row" on the page as a wrapping flex row with -12px margins, which ran
+     each play's meta line inline after its description */
+  #all22 .row{display:block;margin:0;flex:none;padding:9px 14px;border-bottom:1px solid #232323;cursor:pointer}
   #all22 .row:hover{background:#1e1e1e}
   #all22 .row.on{background:#282828;border-left:3px solid #b1924f;padding-left:11px}
   #all22 .m{font-family:ui-monospace,Menlo,monospace;font-size:10px;color:#adadad}
@@ -1204,7 +1207,22 @@
   #all22 .ofh .s{color:#8f8f8f;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
   #all22 .ofh .sp{flex:1}
   #all22 .ofteams{display:grid;grid-template-columns:1fr 1fr}
-  #all22 .ofteams.stack{display:block}
+  /* Wide view: the column is exactly the video's height, and the 22 rows
+     share it -- every player on screen, no scrolling. Type scales with that
+     height (cqh, the column's own height) between a readable floor and the
+     half-view size; below the floor the column scrolls rather than overlap. */
+  #a-onside{container-type:size;display:flex;flex-direction:column;
+    /* a floor for while the clip is still loading, or failed to */
+    min-height:min(360px,calc(100vh - 210px))}
+  #a-onside .ofh{flex:none;padding:clamp(4px,1.4cqh,9px) 14px}
+  #all22 .ofteams.stack{flex:1 1 auto;min-height:0;display:flex;flex-direction:column}
+  #all22 .ofteams.stack .ofteam{flex:1 1 0;min-height:0;display:flex;flex-direction:column;padding:2px 0}
+  #all22 .ofteams.stack .ofteam h4{flex:none;padding:clamp(1px,.6cqh,4px) 14px;font-size:clamp(9px,2.1cqh,11px)}
+  #all22 .ofteams.stack .ofp{flex:1 1 0;min-height:13px;padding-top:0;padding-bottom:0;
+    font-size:clamp(10px,2.4cqh,12px)}
+  #all22 .ofteams.stack .ofp .p{font-size:clamp(9px,2.1cqh,10.5px)}
+  #all22 .ofteams.stack .ofp .n{font-size:clamp(9px,2.2cqh,11px)}
+  #all22 .ofteams.stack .ofp .go2{font-size:clamp(9px,2.1cqh,11px)}
   #all22 .ofteam{padding:6px 0;min-width:0}
   #all22 .ofteams:not(.stack) .ofteam+.ofteam{border-left:1px solid #282828}
   #all22 .ofteams.stack .ofteam+.ofteam{border-top:1px solid #282828}
