@@ -7,7 +7,7 @@ Search runs entirely against the local nflverse SQLite index -- all 372 pbp
 columns are filterable. Video never touches this server: the browser extension
 renders NFL Pro's own player in-page, on nfl.com, under your subscription.
 """
-import json, os, sqlite3, sys
+import json, os, re, sqlite3, sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
@@ -346,6 +346,31 @@ def search(con, qs):
     return rows
 
 
+# Rows for named plays, for a cutup shared as a link. Mirrors db.js playsById.
+PLAYS_MAX = 500
+
+
+def plays_by_id(con, ids):
+    pairs = []
+    for s in (ids or "").split(","):
+        m = re.match(r"^(\d{10})/(\d{1,6})$", s.strip())
+        if m:
+            pairs.append((m.group(1), int(m.group(2))))
+        if len(pairs) >= PLAYS_MAX:
+            break
+    if not pairs:
+        return []
+    sel = ",".join('"%s"' % c for c in CORE)
+    where = " OR ".join("(old_game_id = ? AND play_id = ?)" for _ in pairs)
+    cur = con.execute("SELECT %s FROM plays WHERE %s ORDER BY old_game_id, play_id" % (sel, where),
+                      [x for pr in pairs for x in pr])
+    names = [d[0] for d in cur.description]
+    rows = [dict(zip(names, r)) for r in cur.fetchall()]
+    for r in rows:
+        r["week_slug"] = nflpro.week_slug(r["season_type"], r["week"])
+    return rows
+
+
 class H(BaseHTTPRequestHandler):
     def log_message(self, *a): pass
 
@@ -401,6 +426,8 @@ class H(BaseHTTPRequestHandler):
         try:
             if u.path == "/api/search":
                 return self._send(200, json.dumps(search(con, qs)))
+            if u.path == "/api/plays":
+                return self._send(200, json.dumps(plays_by_id(con, one.get("ids", ""))))
             if u.path == "/api/values":
                 cs = schema(con)
                 gs = groups(cs)

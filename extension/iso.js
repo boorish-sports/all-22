@@ -6,6 +6,20 @@
  */
 const UUID_KEY = "gameUuids";
 const PREFS_KEY = "prefs";
+const NOTES_KEY = "notes";        // "old_game_id/play_id" -> { t, at }
+const CUTS_KEY = "cutups";        // id -> { id, name, at, plays: [row] }
+const PENDING_KEY = "pendingImport";
+
+/* A shared cutup arrives as pro.nfl.com/#all22=<payload>. Taken here, at
+   document_start, before NFL's router can rewrite the URL and drop the
+   fragment; the panel asks for it once it is up. The fragment never reaches
+   NFL's servers. */
+if (location.hash.startsWith("#all22=")) {
+  chrome.storage.local.set({ [PENDING_KEY]: location.hash.slice(1) });
+  try { history.replaceState(history.state, "", location.pathname + location.search); } catch {}
+}
+
+const getKey = async k => (await chrome.storage.local.get(k))[k] || {};
 
 async function uuidMap() {
   return (await chrome.storage.local.get(UUID_KEY))[UUID_KEY] || {};
@@ -27,6 +41,35 @@ async function route(url, init) {
     return cur;
   }
 
+  /* Notes and cutups: local only, never sent anywhere. Each write touches one
+     note or one cutup, read-modify-write here, so two NFL Pro tabs editing
+     different cutups cannot overwrite each other's work. */
+  if (p === "/api/library") {
+    return { notes: await getKey(NOTES_KEY), cutups: await getKey(CUTS_KEY) };
+  }
+  if (p === "/api/note" && init && init.method === "POST") {
+    const b = JSON.parse(init.body);
+    const m = await getKey(NOTES_KEY);
+    const t = String(b.text || "").slice(0, 4000);
+    if (t.trim()) m[b.key] = { t, at: Date.now() };
+    else delete m[b.key];
+    await chrome.storage.local.set({ [NOTES_KEY]: m });
+    return { ok: true };
+  }
+  if (p === "/api/cutup" && init && init.method === "POST") {
+    const b = JSON.parse(init.body);
+    const m = await getKey(CUTS_KEY);
+    if (b.delete) delete m[b.delete];
+    else if (b.cutup && b.cutup.id) m[b.cutup.id] = b.cutup;
+    await chrome.storage.local.set({ [CUTS_KEY]: m });
+    return { ok: true };
+  }
+  if (p === "/api/pending_import") {
+    const v = (await chrome.storage.local.get(PENDING_KEY))[PENDING_KEY] || null;
+    if (v) await chrome.storage.local.remove(PENDING_KEY);
+    return { link: v };
+  }
+
   // nflverse old_game_id -> NFL Pro fapiGameId, learned at runtime, kept locally
   if (p === "/api/game_uuid") {
     const m = await uuidMap();
@@ -43,7 +86,7 @@ async function route(url, init) {
                "/api/values": "values", "/api/search": "search",
                "/api/players": "players", "/api/player_roles": "player_roles",
                "/api/player_subfilters": "player_subfilters",
-               "/api/status": "status" }[p];
+               "/api/status": "status", "/api/plays": "plays" }[p];
   if (!op) throw new Error("no route " + p);
 
   // Object.fromEntries keeps only the LAST value of a repeated key, which would

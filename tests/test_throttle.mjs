@@ -27,7 +27,7 @@ let gate = cut(/  const GAP = 1000, CEILING = 400/, "\n    return p;\n  }\n");
 gate = gate.replace("const GAP = 1000, CEILING = 400, WINDOW = 3600e3, COOLDOWN = 5 * 60e3;",
                     "const GAP = 20, CEILING = 8, WINDOW = 400, COOLDOWN = 150;");
 const clip = cut(/  const uuidCache = new Map\(\);/, "\n    }));\n  }\n");
-const sel  = cut(/  let lastRows = \[\], selIdx = -1;/, "\n    } finally {\n      fetching = false;\n    }\n  }\n");
+const sel  = cut(/  let lastRows = \[\], selIdx = -1/, "\n    } finally {\n      fetching = false;\n    }\n  }\n");
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -48,8 +48,8 @@ function harness() {
     st, log, setRespond: f => { respond = f; },
   };
   const body = gate + clip + sel + "\n  return { secured, clipFor, selectPlay, setRows: r => { lastRows = r; } };";
-  const api = new Function("nuxt", "backend", "post", "mount", "q", "esc", "ANGLES", body)(
-    env.nuxt, env.backend, env.post, env.mount, env.q, env.esc, env.ANGLES);
+  const api = new Function("nuxt", "backend", "post", "mount", "q", "esc", "ANGLES", "drawNote", body)(
+    env.nuxt, env.backend, env.post, env.mount, env.q, env.esc, env.ANGLES, () => {});
   return Object.assign(env, api);
 }
 

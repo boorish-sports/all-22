@@ -43,6 +43,12 @@ def build_cases(con):
     op("meta", "meta", "")
     op("columns", "columns", "")
     op("players", "players", "q=ander")
+    # a shared cutup's lookup: good ids, a missing play, and junk that must be dropped
+    g = con.execute("SELECT old_game_id FROM plays ORDER BY old_game_id LIMIT 1").fetchone()[0]
+    pids = [r[0] for r in con.execute(
+        "SELECT play_id FROM plays WHERE old_game_id=? ORDER BY play_id LIMIT 5", (g,))]
+    op("plays", "plays", "ids=" + ",".join("%s/%s" % (g, x) for x in pids) + ",%s/999999,bad,1/2" % g)
+    op("plays_empty", "plays", "ids=")
 
     # profiles: every merged column, every 6th raw column, and the ones with a
     # story (play_clock all-zero, epa numeric, desc free text, sack flag)

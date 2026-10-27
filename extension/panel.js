@@ -654,6 +654,8 @@
     ["0 / Home", "Restart clip"],
     ["1 / 2", "Sideline / endzone"],
     ["N / P", "Next / previous play"],
+    ["S", "Save to last cutup"],
+    ["E", "Note on this play"],
     ["[ ]", "Slower / faster"],
     ["H", "Hide / show controls"],
     ["M", "Mute"],
@@ -678,6 +680,11 @@
     if (p.classList.contains("hid")) return;
     if (e.key === "Escape" && menuOpen) {
       setMenu(false);
+      e.preventDefault();
+      return;
+    }
+    if (e.key === "Escape" && saveOpen) {
+      setSaveMenu(false);
       e.preventDefault();
       return;
     }
@@ -712,6 +719,8 @@
       case "1": setBare(false); setAngle(0); break;
       case "2": setBare(false); setAngle(1); break;
       case "n": nextPlay(); break;
+      case "s": quickSave(); break;
+      case "e": if (curRow) { const tx = document.getElementById("a-notetx"); tx.focus(); tx.select(); } else handled = false; break;
       case "p": prevPlay(); break;
       case "[": setRate(1 / 1.25); break;
       case "]": setRate(1.25); break;
@@ -825,10 +834,10 @@
   #all22 .st{padding:9px 14px;color:#adadad;font-size:12px}
   #all22-video{background:#000;width:100%;display:flex;justify-content:center}
   /* Fill the panel width, limited only by the height actually available:
-     100vh minus the header, the angle buttons and one filter row. In wide mode
+     100vh minus the header, the angle buttons, the note strip and one filter row. In wide mode
      that is roughly double the old 620px-height cap; in narrow, width:100%
      still governs. */
-  #all22-video .a22box{width:100%;max-width:calc((100vh - 210px) * 16 / 9);
+  #all22-video .a22box{width:100%;max-width:calc((100vh - 256px) * 16 / 9);
     aspect-ratio:16/9;background:#000;position:relative}
   /* NFL's player wraps the <video> in divs that size to their own defaults;
      make the chain fill the box so the picture scales with the panel */
@@ -988,7 +997,67 @@
   html.a22push{overflow-x:hidden}
   #all22-tab{position:fixed;top:50%;right:0;z-index:2147483000;transform:translateY(-50%);
     background:#b1924f;color:#17130a;writing-mode:vertical-rl;padding:14px 6px;cursor:pointer;
-    border-radius:4px 0 0 5px;font:600 11px "All-ProSans-Medium",sans-serif;letter-spacing:.14em}`;
+    border-radius:4px 0 0 5px;font:600 11px "All-ProSans-Medium",sans-serif;letter-spacing:.14em}
+  /* ---- saved plays: note strip, save menu, cutups view ---- */
+  #all22 .a22b{background:transparent;color:#adadad;border:1px solid #282828;padding:4px 10px;
+    border-radius:4px;font-family:inherit;font-size:12px;font-weight:500;cursor:pointer;white-space:nowrap}
+  #all22 .a22b:hover{color:#b1924f;border-color:#b1924f}
+  #all22 .a22b.on,#all22 .a22b.pri{background:#b1924f;color:#17130a;border-color:#b1924f;font-weight:600}
+  #all22 .a22b.warn{color:#e0736b;border-color:#6d372c}
+  #all22 .a22i{background:#1e1e1e;border:1px solid #282828;color:#e6e6e6;padding:5px 8px;
+    border-radius:4px;font-family:inherit;font-size:12px;min-width:0}
+  #all22 .a22i:focus{outline:none;border-color:#b1924f}
+  #all22-note{display:flex;gap:8px;align-items:flex-start;padding:8px 14px;
+    border-bottom:1px solid #282828;background:#121212}
+  #all22-note[hidden]{display:none!important}
+  #all22-note .sgrp{position:relative;flex:none}
+  #all22-note #a-save{height:30px}
+  #all22-note textarea{flex:1;height:30px;min-height:30px;max-height:120px;resize:none;
+    background:#1e1e1e;border:1px solid #282828;color:#e6e6e6;padding:6px 8px;border-radius:4px;
+    font-family:inherit;font-size:12px;line-height:1.4;box-sizing:border-box}
+  #all22-note textarea:focus{outline:none;border-color:#b1924f}
+  #a-savemenu{position:absolute;top:calc(100% + 6px);left:0;z-index:30;width:250px;
+    background:#1a1a1a;border:1px solid #313131;border-radius:8px;padding:6px;
+    box-shadow:0 12px 28px rgba(0,0,0,.6)}
+  #a-savemenu[hidden]{display:none!important}
+  #a-savemenu .ci{display:flex;gap:8px;align-items:center;padding:6px;border-radius:4px;
+    cursor:pointer;font-size:12px;color:#e6e6e6}
+  #a-savemenu .ci:hover{background:#242424}
+  #a-savemenu .ci input{accent-color:#b1924f;margin:0}
+  #a-savemenu .ci .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #a-savemenu .ci .n{color:#8f8f8f;font-size:11px}
+  #a-savemenu .pe{color:#8f8f8f;font-size:11.5px;padding:6px}
+  #a-savemenu .newc{display:flex;gap:6px;border-top:1px solid #262626;margin-top:4px;padding-top:6px}
+  #a-savemenu .newc input{flex:1}
+  #a-cuthead{display:none}
+  #all22.cutmode #a-cuthead{display:block}
+  #all22.cutmode #a-body > .fl,#all22.cutmode #a-facethead,#all22.cutmode #a-facets{display:none!important}
+  #all22 .cbar{display:flex;gap:6px;align-items:center;padding:9px 14px;flex-wrap:wrap;
+    border-bottom:1px solid #282828;background:#191919}
+  #all22 .cbar .cap{color:#b1924f;font-size:11px;letter-spacing:.12em;text-transform:uppercase;font-weight:600}
+  #all22 .cbar .cn{color:#e6e6e6;font-weight:600;font-size:13px;overflow:hidden;
+    text-overflow:ellipsis;white-space:nowrap;max-width:260px}
+  #all22 .cbar .cnt{color:#8f8f8f;font-size:11px}
+  #all22 .cbar .sp{flex:1}
+  #all22 .cbar input{flex:1}
+  #all22 .crow{padding:10px 14px;border-bottom:1px solid #232323;cursor:pointer;
+    display:flex;gap:10px;align-items:center}
+  #all22 .crow:hover{background:#1e1e1e}
+  #all22 .crow .cmain{flex:1;min-width:0}
+  #all22 .crow .cname{font-weight:600;color:#e6e6e6;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #all22 .crow .cact{display:flex;gap:4px;flex:none}
+  #all22 .crow .cact .a22b{padding:3px 8px;font-size:11px}
+  #all22 .cempty{padding:16px 14px;color:#bdbdbd;font-size:12px;line-height:1.5}
+  #all22 .row .nt{margin-top:4px;color:#d8c9a3;font-size:11.5px;white-space:pre-wrap;
+    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+    border-left:2px solid #b1924f66;padding-left:7px}
+  #all22 .row .star{color:#b1924f}
+  #all22 .row .rctl{float:right;display:flex;gap:3px;margin:0 0 4px 8px;opacity:0}
+  #all22 .row:hover .rctl,#all22 .row.on .rctl{opacity:1}
+  #all22 .row .rctl button{background:transparent;border:1px solid #282828;color:#8f8f8f;
+    border-radius:4px;width:22px;height:22px;padding:0;cursor:pointer;font-size:11px;line-height:1}
+  #all22 .row .rctl button:hover:not(:disabled){color:#b1924f;border-color:#b1924f}
+  #all22 .row .rctl button:disabled{opacity:.3;cursor:default}`;
   document.head.appendChild($("style", "", CSS));
 
   /* Lucide glyphs, inlined. The panel is plain DOM in the page world -- no React,
@@ -998,6 +1067,7 @@
     wide:   "m11 17-5-5 5-5M18 17l-5-5 5-5",
     narrow: "m6 17 5-5-5-5M13 17l5-5-5-5",
     hide:   "M18 6 6 18M6 6l12 12",
+    cuts:   "M12 12H3M16 6H3M12 18H3M16 12l5 3-5 3v-6Z",
     book:   "M12 7v14M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z",
   };
   const svg = d => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" ` +
@@ -1016,13 +1086,19 @@
     <div class="tray" id="all22-tray" title="Narrow the panel to show NFL Pro">${svg(ICON.narrow)}<span>NFL Pro</span></div>
     <div class="hd"><h2>All-22 Film Search</h2>
       <span class="btns">
+        <button class="ib" id="all22-c" title="Cutups" aria-label="Cutups">${svg(ICON.cuts)}</button>
         <button class="ib" id="all22-d" title="Filter dictionary" aria-label="Filter dictionary">${svg(ICON.book)}</button>
         <button class="ib" id="all22-w" title="Widen the panel" aria-label="Widen the panel">${svg(ICON.wide)}</button>
         <button class="ib" id="all22-x" title="Hide the panel" aria-label="Hide the panel">${svg(ICON.hide)}</button>
       </span></div>
     <div id="all22-video"></div>
     <div id="all22-ang"></div>
+    <div id="all22-note" hidden>
+      <span class="sgrp"><button class="a22b" id="a-save" title="Save this play to a cutup (S)">\u2606 Save</button><div id="a-savemenu" hidden></div></span>
+      <textarea id="a-notetx" rows="1" placeholder="Note on this play (E)" maxlength="4000"></textarea>
+    </div>
     <div class="body" id="a-body">
+    <div id="a-cuthead"></div>
     <div class="fl">
       <label class="ctl"><span>Season</span><select id="a-season"></select></label>
       <label class="ctl"><span>Week</span><select id="a-week"><option value="">Any</option></select></label>
@@ -1142,6 +1218,7 @@
     // previous version or a hand-edit could leave anything in
     if (prefs.rate) rate = Math.min(4, Math.max(0.1, +prefs.rate || 1));
     autoNext = !!prefs.autoNext;
+    lastCut = prefs.lastCut || null;
     if (curList.length) drawAngles();
     if (prefs.noticeDismissed >= NOTICE_VERSION) return;
     notice.hidden = false;
@@ -1612,8 +1689,11 @@
     // loading is done; replace whatever progress text was left on screen
     const st = q("#all22-st");
     st.dataset.loaded = "1";
-    st.textContent =
-      m.columns + " pbp columns are filterable — tacklers, fumbles, EPA, CPOE, personnel…";
+    const msg = m.columns + " pbp columns are filterable — tacklers, fumbles, EPA, CPOE, personnel…";
+    // a cutup opened from a link can beat the index here; its line is the one
+    // to keep, and search gets this one back when you return to it
+    if (cutView && searchState) searchState.st = esc(msg);
+    else st.textContent = msg;
     q("#a-season").value = m.seasons[m.seasons.length - 1];
   }).catch(e => { q("#all22-st").innerHTML = `<span style="color:#e0736b">${esc(e.message)}</span>`; });
 
@@ -1901,7 +1981,11 @@
   };
 
   // current result set + selection, shared by clicks and the keyboard
-  let lastRows = [], selIdx = -1;
+  let lastRows = [], selIdx = -1, lastShown = [];
+  // the play on screen, which outlives a re-run search or a reordered cutup
+  let curRow = null;
+  // saved plays (see "saved plays" below); filled from chrome.storage at load
+  let NOTES = {}, CUTS = {}, lastCut = null, cutView = null, saveOpen = false;
 
   /* Selection is coalesced: while a clip is loading, further selections only
      move the highlight, and when the load finishes the LATEST selection is
@@ -1912,6 +1996,8 @@
     const row = lastRows[i];
     if (!row) return;
     selIdx = i;
+    curRow = row;
+    drawNote();
     const res = q("#all22-res");
     res.querySelectorAll(".row").forEach(x => x.classList.remove("on"));
     const el = res.querySelector(`.row[data-i="${i}"]`);
@@ -1945,6 +2031,458 @@
       fetching = false;
     }
   }
+
+  // the measures this search was selected by, beside the EPA that is always
+  // there. NULL prints as "--": the play has no such measure, which is a
+  // different answer from zero and the row should not pretend otherwise.
+  function rowHtml(r, i) {
+    const k = pkey(r), n = NOTES[k];
+    const inCut = cutView && cutView !== "list";
+    const measures = lastShown.map(c =>
+      `<span class="sv">${esc(humanCol(c))} ${r[c] == null ? "--"
+        : esc(NUMERIC(c) ? sig(r[c]) : String(r[c]))}</span> · `).join("");
+    const ctl = !inCut ? "" :
+      `<span class="rctl">` +
+      `<button data-mv="-1" title="Move up"${i ? "" : " disabled"}>↑</button>` +
+      `<button data-mv="1" title="Move down"${i + 1 < lastRows.length ? "" : " disabled"}>↓</button>` +
+      `<button data-rm="1" title="Remove from this cutup">✕</button></span>`;
+    const star = !inCut && savedIn(k).length ? '<span class="star" title="In a cutup">★</span> ' : "";
+    return `<div class="row${i === selIdx ? " on" : ""}" data-i="${i}">${ctl}
+        <div>${star}${esc((r.desc || "").slice(0, 150))}</div>
+        <div class="m">${esc(r.away_team)} @ ${esc(r.home_team)} · wk ${esc(String(r.week))} · Q${esc(String(r.qtr))} ${esc(r.time || "")} ·
+          ${r.down ? esc(String(r.down)) + "&amp;" + esc(String(r.ydstogo)) : "--"} ·
+          <span class="${r.epa > 0 ? "pos" : "neg"}">EPA ${r.epa == null ? "--" : (+r.epa).toFixed(2)}</span> ·
+          ${measures}${esc(k)}</div>
+        ${n ? `<div class="nt">${esc(n.t)}</div>` : ""}
+      </div>`;
+  }
+  function wireRow(el) {
+    const i = +el.dataset.i;
+    el.onclick = () => selectPlay(i);
+    el.querySelectorAll(".rctl button").forEach(b => b.onclick = e => {
+      e.stopPropagation();
+      if (b.dataset.rm) removeFromCut(i); else moveInCut(i, +b.dataset.mv);
+    });
+  }
+  function drawRows() {
+    const res = q("#all22-res");
+    res.innerHTML = lastRows.map(rowHtml).join("");
+    res.querySelectorAll(".row").forEach(wireRow);
+  }
+  // a note or a save changed one play: redraw just its rows, not the list
+  function refreshRow(k) {
+    q("#all22-res").querySelectorAll(".row").forEach(el => {
+      const i = +el.dataset.i, r = lastRows[i];
+      if (!r || pkey(r) !== k) return;
+      const t = $("div");
+      t.innerHTML = rowHtml(r, i);
+      const nu = t.firstElementChild;
+      el.replaceWith(nu);
+      wireRow(nu);
+    });
+  }
+
+  /* ---------------- saved plays ----------------
+     A note belongs to a play, not to a cutup: it shows wherever that play turns
+     up. A cutup is a named, ordered list of plays, each kept as a copy of its
+     search row -- everything clipFor() needs -- so it plays back without a
+     search and survives the index being rebuilt. Both live in chrome.storage
+     through iso.js and never leave the machine, except in a link the user
+     chooses to copy, which carries only play ids, the name and the notes. */
+  const pkey = r => `${r.old_game_id}/${r.play_id}`;
+  const SNAP = ["play_id", "old_game_id", "season", "season_type", "week", "week_slug",
+                "home_team", "away_team", "posteam", "defteam", "qtr", "time", "down",
+                "ydstogo", "desc", "play_type", "epa"];
+  const snap = r => Object.fromEntries(SNAP.map(c => [c, r[c] ?? null]));
+  const cutList = () => Object.values(CUTS).sort((a, b) => b.at - a.at);
+  const savedIn = k => cutList().filter(c => c.plays.some(r => pkey(r) === k));
+  const saveCut = c => post("/api/cutup", { cutup: c })
+    .catch(() => flash("could not save — reload NFL Pro"));
+  function setLastCut(id) {
+    lastCut = id;
+    post("/api/prefs", { lastCut: id }).catch(() => {});
+  }
+  function newCut(name, plays) {
+    const id = "c" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    const c = { id, name: String(name || "").trim().slice(0, 80) || "Untitled cutup",
+                at: Date.now(), plays: plays || [] };
+    CUTS[id] = c;
+    saveCut(c);
+    setLastCut(id);
+    return c;
+  }
+  // put a play in or take it out of one cutup; returns whether it is now in
+  function toggleIn(id, row, on) {
+    const c = CUTS[id];
+    if (!c || !row) return false;
+    const k = pkey(row), at = c.plays.findIndex(r => pkey(r) === k);
+    if (on === undefined) on = at === -1;
+    if (on && at === -1) c.plays.push(snap(row));
+    if (!on && at !== -1) c.plays.splice(at, 1);
+    c.at = Date.now();
+    saveCut(c);
+    setLastCut(id);
+    afterCutChange(k);
+    return on;
+  }
+  function afterCutChange(k) {
+    drawSaveBtn();
+    if (saveOpen) drawSaveMenu();
+    if (cutView === "list") drawLibrary();
+    else if (cutView) syncCutRows();
+    else if (k) refreshRow(k);
+  }
+  // S: the play on screen into (or back out of) the cutup used last
+  function quickSave() {
+    if (!curRow) { flash("select a play first"); return; }
+    const c = CUTS[lastCut] || newCut("My cutup");
+    const on = toggleIn(c.id, curRow);
+    flash((on ? "saved to " : "removed from ") + c.name);
+  }
+
+  /* -- note strip: under the angle buttons, for the play on screen -- */
+  let noteTimer = null, noteFor = null;
+  function drawNote() {
+    const bar = q("#all22-note");
+    if (!curRow) { bar.hidden = true; return; }
+    bar.hidden = false;
+    const k = pkey(curRow), tx = q("#a-notetx");
+    if (noteFor !== k) {
+      flushNote();                       // the previous play's unsaved typing
+      noteFor = k;
+      tx.value = (NOTES[k] && NOTES[k].t) || "";
+      growNote();
+    }
+    drawSaveBtn();
+    if (saveOpen) drawSaveMenu();
+  }
+  function growNote() {
+    const tx = q("#a-notetx");
+    tx.style.height = "30px";
+    tx.style.height = Math.min(120, Math.max(30, tx.scrollHeight + 2)) + "px";
+  }
+  function saveNote() {
+    noteTimer = null;
+    const k = noteFor;
+    if (!k) return;
+    const t = q("#a-notetx").value;
+    if ((NOTES[k] ? NOTES[k].t : "") === t) return;
+    if (t.trim()) NOTES[k] = { t, at: Date.now() }; else delete NOTES[k];
+    post("/api/note", { key: k, text: t }).catch(() => flash("note not saved — reload NFL Pro"));
+    if (cutView === "list") drawLibrary(); else refreshRow(k);
+  }
+  function flushNote() {
+    if (!noteTimer) return;
+    clearTimeout(noteTimer);
+    saveNote();
+  }
+  (function wireNote() {
+    const tx = q("#a-notetx");
+    tx.addEventListener("input", () => {
+      growNote();
+      clearTimeout(noteTimer);
+      noteTimer = setTimeout(saveNote, 400);
+    });
+    tx.addEventListener("blur", flushNote);
+    tx.addEventListener("keydown", e => {
+      // typing is not a shortcut: keep NFL's own key handlers out of it too
+      e.stopPropagation();
+      if (e.key === "Escape") { flushNote(); tx.blur(); }
+    });
+  })();
+
+  /* -- save menu: tick the cutups this play belongs in, or start one -- */
+  function drawSaveBtn() {
+    const b = q("#a-save");
+    const n = curRow ? savedIn(pkey(curRow)).length : 0;
+    b.textContent = n ? (n > 1 ? `★ In ${n} cutups` : "★ Saved") : "☆ Save";
+    b.classList.toggle("on", !!n);
+  }
+  function setSaveMenu(on) {
+    saveOpen = !!on && !!curRow;
+    q("#a-savemenu").hidden = !saveOpen;
+    if (saveOpen) drawSaveMenu();
+  }
+  function drawSaveMenu() {
+    const m = q("#a-savemenu");
+    if (!curRow) { setSaveMenu(false); return; }
+    const k = pkey(curRow), list = cutList();
+    m.innerHTML = (list.length ? list.map(c =>
+        `<label class="ci"><input type="checkbox" data-id="${esc(c.id)}"` +
+        `${c.plays.some(r => pkey(r) === k) ? " checked" : ""}>` +
+        `<span class="nm">${esc(c.name)}</span><span class="n">${c.plays.length}</span></label>`).join("")
+      : '<div class="pe">No cutups yet. Name one below.</div>') +
+      `<div class="newc"><input class="a22i" id="a-newcut" placeholder="New cutup" maxlength="80">` +
+      `<button class="a22b pri" id="a-newcut-go">Add</button></div>`;
+    m.querySelectorAll("input[data-id]").forEach(cb =>
+      cb.onchange = () => toggleIn(cb.dataset.id, curRow, cb.checked));
+    const inp = m.querySelector("#a-newcut");
+    const add = () => {
+      const name = inp.value.trim();
+      if (!name) { inp.focus(); return; }
+      const c = newCut(name);
+      toggleIn(c.id, curRow, true);
+      flash("saved to " + c.name);
+    };
+    m.querySelector("#a-newcut-go").onclick = add;
+    inp.addEventListener("keydown", e => {
+      e.stopPropagation();
+      if (e.key === "Enter") { e.preventDefault(); add(); }
+      if (e.key === "Escape") setSaveMenu(false);
+    });
+  }
+  q("#a-save").onclick = e => { e.stopPropagation(); setSaveMenu(!saveOpen); };
+  document.addEventListener("click", e => {
+    if (!saveOpen) return;
+    const g = q("#all22-note .sgrp");
+    if (g && !g.contains(e.target)) setSaveMenu(false);
+  }, true);
+
+  /* -- cutups view: replaces the filters; a cutup's plays become the list,
+        so next / previous / auto-play walk it like any search -- */
+  let searchState = null;           // the search to put back on the way out
+  function enterCuts() {
+    if (cutView) return;
+    if (!q("#a-dict").hidden) showDict(false);
+    searchState = { rows: lastRows, sel: selIdx, shown: lastShown,
+                    st: q("#all22-st").innerHTML, top: q("#a-body").scrollTop };
+    p.classList.add("cutmode");
+  }
+  function leaveCuts() {
+    if (!cutView) return;
+    cutView = null;
+    p.classList.remove("cutmode");
+    q("#a-cuthead").innerHTML = "";
+    q("#all22-c").classList.remove("on");
+    const s0 = searchState || { rows: [], sel: -1, shown: [], st: "", top: 0 };
+    searchState = null;
+    lastRows = s0.rows; lastShown = s0.shown;
+    // the play on screen may sit somewhere else in the search, or not at all
+    selIdx = curRow ? lastRows.findIndex(r => pkey(r) === pkey(curRow)) : s0.sel;
+    q("#all22-st").innerHTML = s0.st;
+    drawRows();
+    q("#a-body").scrollTop = s0.top;
+    if (curList.length) drawAngles();
+  }
+  function drawLibrary(msg) {
+    enterCuts();
+    cutView = "list";
+    q("#all22-c").classList.add("on");
+    q("#a-cuthead").innerHTML =
+      `<div class="cbar"><span class="cap">Cutups</span><span class="sp"></span>` +
+      `<button class="a22b" data-act="back">Back to search</button></div>` +
+      `<div class="cbar"><input class="a22i" id="a-imp" placeholder="Paste a shared cutup link" autocomplete="off">` +
+      `<button class="a22b" id="a-imp-go">Import</button></div>`;
+    wireCutHead();
+    const imp = q("#a-imp");
+    const go = () => importLink(imp.value).catch(e =>
+      q("#all22-st").innerHTML = `<span style="color:#e0736b">${esc(e.message || String(e))}</span>`);
+    q("#a-imp-go").onclick = go;
+    imp.addEventListener("keydown", e => { e.stopPropagation(); if (e.key === "Enter") go(); });
+    const list = cutList();
+    q("#all22-st").innerHTML = msg || (list.length ? list.length + (list.length > 1 ? " cutups" : " cutup") : "");
+    const when = t => new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    q("#all22-res").innerHTML = !list.length
+      ? `<div class="cempty">No cutups yet. Pick a play in search, then press <b>Save</b> (or <b>S</b>)
+         under the video to start one. Each play can carry a note.</div>`
+      : list.map(c => {
+          const notes = c.plays.filter(r => NOTES[pkey(r)]).length;
+          return `<div class="crow" data-id="${esc(c.id)}"><div class="cmain">
+              <div class="cname">${esc(c.name)}</div>
+              <div class="m">${c.plays.length} play${c.plays.length === 1 ? "" : "s"}` +
+              `${notes ? ` · ${notes} note${notes === 1 ? "" : "s"}` : ""} · updated ${esc(when(c.at))}</div></div>
+            <span class="cact"><button class="a22b" data-act="link">Copy link</button>` +
+            `<button class="a22b" data-act="ren">Rename</button>` +
+            `<button class="a22b" data-act="del">Delete</button></span></div>`;
+        }).join("");
+    q("#all22-res").querySelectorAll(".crow").forEach(el => {
+      const c = CUTS[el.dataset.id];
+      el.onclick = () => openCut(c.id);
+      el.querySelector('[data-act="link"]').onclick = e => { e.stopPropagation(); copyLink(c); };
+      el.querySelector('[data-act="ren"]').onclick = e => { e.stopPropagation(); renameInline(el.querySelector(".cname"), c); };
+      const del = el.querySelector('[data-act="del"]');
+      // two clicks: a cutup is an evening's work, and there is no undo
+      del.onclick = e => {
+        e.stopPropagation();
+        if (!del.classList.contains("warn")) {
+          del.classList.add("warn"); del.textContent = "Delete?";
+          setTimeout(() => { del.classList.remove("warn"); del.textContent = "Delete"; }, 3000);
+          return;
+        }
+        delete CUTS[c.id];
+        post("/api/cutup", { delete: c.id }).catch(() => {});
+        if (lastCut === c.id) setLastCut(null);
+        drawSaveBtn();
+        drawLibrary(`Deleted “${esc(c.name)}”`);
+      };
+    });
+  }
+  function renameInline(box, c) {
+    box.style.maxWidth = "none";
+    box.style.flex = "1";
+    box.innerHTML = `<input class="a22i" maxlength="80" style="width:100%">`;
+    const inp = box.firstChild;
+    inp.value = c.name;
+    inp.onclick = e => e.stopPropagation();
+    inp.focus(); inp.select();
+    let done = false;
+    const finish = keep => {
+      if (done) return;
+      done = true;
+      const v = inp.value.trim();
+      if (keep && v && v !== c.name) { c.name = v.slice(0, 80); c.at = Date.now(); saveCut(c); }
+      cutView === "list" ? drawLibrary() : openCut(c.id);
+    };
+    inp.addEventListener("keydown", e => {
+      e.stopPropagation();
+      if (e.key === "Enter") finish(true);
+      if (e.key === "Escape") finish(false);
+    });
+    inp.addEventListener("blur", () => finish(true));
+  }
+  function wireCutHead() {
+    const h = q("#a-cuthead");
+    h.querySelectorAll('[data-act="back"]').forEach(b => b.onclick = leaveCuts);
+    h.querySelectorAll('[data-act="lib"]').forEach(b => b.onclick = () => drawLibrary());
+  }
+  function openCut(id) {
+    const c = CUTS[id];
+    if (!c) return drawLibrary();
+    enterCuts();
+    cutView = id;
+    q("#all22-c").classList.add("on");
+    setLastCut(id);
+    q("#a-cuthead").innerHTML =
+      `<div class="cbar"><button class="a22b" data-act="lib">‹ Cutups</button>` +
+      `<span class="cn" title="Click to rename">${esc(c.name)}</span><span class="sp"></span>` +
+      `<button class="a22b" data-act="link">Copy link</button>` +
+      `<button class="a22b" data-act="back">Search</button></div>`;
+    wireCutHead();
+    const h = q("#a-cuthead");
+    h.querySelector('[data-act="link"]').onclick = () => copyLink(c);
+    h.querySelector(".cn").onclick = e => renameInline(e.currentTarget, c);
+    syncCutRows();
+  }
+  // the open cutup changed (order, removal, a save from the menu): redraw it
+  function syncCutRows() {
+    const c = CUTS[cutView];
+    if (!c) return drawLibrary();
+    lastRows = c.plays.slice();
+    lastShown = [];
+    selIdx = curRow ? lastRows.findIndex(r => pkey(r) === pkey(curRow)) : -1;
+    q("#all22-st").textContent = lastRows.length
+      ? `${lastRows.length} play${lastRows.length === 1 ? "" : "s"} · N / P to step through`
+      : "Empty. Pick plays in search and press Save (or S) to add them here.";
+    drawRows();
+    if (curList.length) drawAngles();
+  }
+  function moveInCut(i, d) {
+    const c = CUTS[cutView], j = i + d;
+    if (!c || j < 0 || j >= c.plays.length) return;
+    [c.plays[i], c.plays[j]] = [c.plays[j], c.plays[i]];
+    c.at = Date.now();
+    saveCut(c);
+    syncCutRows();
+  }
+  function removeFromCut(i) {
+    const c = CUTS[cutView];
+    if (!c || !c.plays[i]) return;
+    const k = pkey(c.plays[i]);
+    c.plays.splice(i, 1);
+    c.at = Date.now();
+    saveCut(c);
+    afterCutChange(k);
+  }
+  q("#all22-c").onclick = () => cutView ? leaveCuts() : drawLibrary();
+
+  /* -- share links --
+     pro.nfl.com/#all22=<base64url JSON {v, n: name, p: [[old_game_id, play_id, note?]]}>.
+     Only ids travel; the receiver's own index fills each play back in. The
+     fragment is never sent to NFL's servers, and iso.js takes it off the URL
+     before the page's router sees it. */
+  const SHARE_V = 1, SHARE_MAX = 500;
+  function b64u(str) {
+    let bin = "";
+    for (const x of new TextEncoder().encode(str)) bin += String.fromCharCode(x);
+    return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
+  function unb64u(s) {
+    s = s.replace(/-/g, "+").replace(/_/g, "/");
+    while (s.length % 4) s += "=";
+    return new TextDecoder().decode(Uint8Array.from(atob(s), ch => ch.charCodeAt(0)));
+  }
+  function shareLink(c) {
+    const plays = c.plays.map(r => {
+      const n = NOTES[pkey(r)];
+      return n ? [String(r.old_game_id), r.play_id, n.t] : [String(r.old_game_id), r.play_id];
+    });
+    return "https://pro.nfl.com/#all22=" + b64u(JSON.stringify({ v: SHARE_V, n: c.name, p: plays }));
+  }
+  async function copyLink(c) {
+    if (!c.plays.length) { flash("nothing to share yet"); return; }
+    const url = shareLink(c);
+    try {
+      await navigator.clipboard.writeText(url);
+      q("#all22-st").textContent =
+        `Link to “${c.name}” copied. Anyone with NFL Pro and All-22 can open it.`;
+    } catch {
+      window.prompt("Copy this link to share the cutup:", url);
+    }
+  }
+  async function importLink(str) {
+    const m = /all22=([A-Za-z0-9_-]+)/.exec(String(str || ""));
+    if (!m) throw new Error("That is not an All-22 cutup link.");
+    let d;
+    try { d = JSON.parse(unb64u(m[1])); } catch { d = null; }
+    if (!d || d.v !== SHARE_V || !Array.isArray(d.p))
+      throw new Error("That link is damaged or incomplete.");
+    const items = d.p.slice(0, SHARE_MAX).filter(x => Array.isArray(x) &&
+      /^\d{10}$/.test(String(x[0])) && /^\d{1,6}$/.test(String(x[1])));
+    const key = x => `${x[0]}/${Number(x[1])}`;
+    q("#all22-st").textContent = "importing cutup…";
+    const rows = items.length
+      ? await backend("/api/plays?ids=" + encodeURIComponent(items.map(key).join(","))) : [];
+    const by = new Map((Array.isArray(rows) ? rows : []).map(r => [pkey(r), r]));
+    const plays = [], seen = new Set();
+    let missing = 0, kept = 0;
+    for (const x of items) {
+      const k = key(x), r = by.get(k);
+      if (!r) { missing++; continue; }
+      if (seen.has(k)) continue;
+      seen.add(k);
+      plays.push(snap(r));
+      const t = typeof x[2] === "string" ? x[2].slice(0, 4000) : "";
+      if (!t.trim()) continue;
+      // a note of your own on the same play wins: an import never overwrites
+      if (NOTES[k]) { if (NOTES[k].t !== t) kept++; continue; }
+      NOTES[k] = { t, at: Date.now() };
+      post("/api/note", { key: k, text: t }).catch(() => {});
+    }
+    if (!plays.length) throw new Error("None of that cutup's plays are in your play index yet.");
+    let name = String(d.n || "").trim().slice(0, 80) || "Shared cutup";
+    if (Object.values(CUTS).some(c => c.name === name)) name = (name + " (shared)").slice(0, 80);
+    const c = newCut(name, plays);
+    p.classList.remove("hid");
+    applyPush();
+    openCut(c.id);
+    q("#all22-st").textContent = `Imported “${c.name}”: ${plays.length} play${plays.length === 1 ? "" : "s"}` +
+      (missing ? ` · ${missing} not in your play index yet` : "") +
+      (kept ? ` · kept your own note on ${kept}` : "");
+    return c;
+  }
+
+  // load the library, then take any cutup that arrived by link
+  backend("/api/library").then(lib => {
+    NOTES = (lib && lib.notes) || {};
+    CUTS = (lib && lib.cutups) || {};
+    if (lastRows.length) drawRows();
+    if (curRow) drawNote();
+    return backend("/api/pending_import");
+  }).then(r => {
+    if (r && r.link) return importLink(r.link);
+  }).catch(e => {
+    q("#all22-st").innerHTML = `<span style="color:#e0736b">${esc(e.message || String(e))}</span>`;
+  });
 
   // Everything except the player/role/facet selection. The facet counts need the
   // very same filters, or a chip claims a player's whole season while the list
@@ -2006,24 +2544,10 @@
       } else {
         q("#all22-st").textContent = rows.length + " plays";
       }
-      // the measures this search was selected by, beside the EPA that is always
-      // there. NULL prints as "--": the play has no such measure, which is a
-      // different answer from zero and the row should not pretend otherwise.
-      const measures = r => shown.map(c =>
-        `<span class="sv">${esc(humanCol(c))} ${r[c] == null ? "--"
-          : esc(NUMERIC(c) ? sig(r[c]) : String(r[c]))}</span> · `).join("");
-      q("#all22-res").innerHTML = rows.map((r, i) => `
-        <div class="row" data-i="${i}">
-          <div>${esc((r.desc || "").slice(0, 150))}</div>
-          <div class="m">${r.away_team} @ ${r.home_team} · wk ${r.week} · Q${r.qtr} ${r.time || ""} ·
-            ${r.down ? r.down + "&amp;" + r.ydstogo : "--"} ·
-            <span class="${r.epa > 0 ? "pos" : "neg"}">EPA ${r.epa == null ? "--" : (+r.epa).toFixed(2)}</span> ·
-            ${measures(r)}${r.old_game_id}/${r.play_id}</div>
-        </div>`).join("");
       lastRows = rows;
       selIdx = -1;
-      q("#all22-res").querySelectorAll(".row").forEach(el =>
-        el.onclick = () => selectPlay(+el.dataset.i));
+      lastShown = shown;
+      drawRows();
     }).catch(e => { q("#all22-st").innerHTML = `<span style="color:#e0736b">${esc(String(e))}</span>`; });
   }
   applyPush();
@@ -2048,5 +2572,9 @@
   // re-sorting does not change WHICH plays match, only their order, so it runs
   // the search again but leaves the facet counts alone
   q("#a-order").addEventListener("change", () => run());
-  p.addEventListener("keydown", e => { if (e.key === "Enter") run(); });
+  p.addEventListener("keydown", e => {
+    if (e.key !== "Enter" || cutView) return;
+    if (e.target && e.target.closest && e.target.closest("#all22-note")) return;
+    run();
+  });
 })();

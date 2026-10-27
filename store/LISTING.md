@@ -19,7 +19,7 @@ reference to the service the extension works with.
 
     REQUIRES AN ACTIVE NFL PRO SUBSCRIPTION. This extension does nothing useful without one.
 
-    All-22 Film Search adds a search panel to NFL Pro's film room (pro.nfl.com). Filter 337 columns of nflverse play-by-play — tacklers, pressures, EPA, CPOE, personnel, play action, motion, drops, throwaways, and every other field nflverse publishes — and the matching plays appear instantly. Click a play and its Sideline and Endzone angles play in NFL Pro's own video player, in a side panel, under your own subscription. Frame stepping, speed control and keyboard shortcuts are built in.
+    All-22 Film Search adds a search panel to NFL Pro's film room (pro.nfl.com). Filter 337 columns of nflverse play-by-play — tacklers, pressures, EPA, CPOE, personnel, play action, motion, drops, throwaways, and every other field nflverse publishes — and the matching plays appear instantly. Click a play and its Sideline and Endzone angles play in NFL Pro's own video player, in a side panel, under your own subscription. Frame stepping, speed control and keyboard shortcuts are built in. Save plays into named cutups, write a note on any play, and share a cutup as a link with anyone else who has NFL Pro.
 
     HOW IT WORKS
     • Search is entirely local. A SQLite index of public nflverse data (about 15 MB compressed) is downloaded from GitHub once and cached in your browser; in season, only the weeks that changed are fetched after that. Nothing you search leaves your machine.
@@ -63,8 +63,10 @@ Upload in that order; the first is the one shown in search results.
 
 **Permission justifications:**
 
-- `storage` — Keeps a small map of game identifiers and the user's UI
-  preferences (first-run notice dismissed) in chrome.storage.local.
+- `storage` — Keeps a small map of game identifiers, the user's UI
+  preferences (first-run notice dismissed, playback speed), and the cutups
+  and play notes the user saves, in chrome.storage.local. Nothing is sent
+  anywhere.
 - `unlimitedStorage` — Caches the ~60 MB SQLite play index in IndexedDB so it
   is downloaded once rather than on every visit. Exceeds the default quota.
 - `offscreen` — Runs the SQLite WebAssembly engine in an offscreen document.

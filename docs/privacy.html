@@ -28,10 +28,15 @@ code{background:#1e1e1e;border:1px solid #282828;border-radius:4px;padding:1px 6
     <li><strong>A game-ID map.</strong> When you open a clip, the extension learns which NFL Pro game
     identifier corresponds to which nflverse game and keeps that mapping in
     <code>chrome.storage.local</code> so it need not ask again.</li>
-    <li><strong>UI preferences.</strong> Whether you have dismissed the first-run notice, in
-    <code>chrome.storage.local</code>.</li>
+    <li><strong>UI preferences.</strong> Whether you have dismissed the first-run notice, your playback
+    speed, and similar settings, in <code>chrome.storage.local</code>.</li>
+    <li><strong>Your cutups and notes.</strong> The plays you save into cutups and the notes you write on
+    plays, in <code>chrome.storage.local</code>.</li>
   </ul>
-  <p>Removing the extension deletes all of this. None of it leaves your browser.</p>
+  <p>Removing the extension deletes all of this. None of it leaves your browser unless you choose to share
+  a cutup: <strong>Copy link</strong> puts the cutup's name, its play IDs and your notes on those plays
+  into a link on your clipboard. The data is in the part of the link after <code>#</code>, which browsers
+  do not send to the site, so it reaches only the people you give the link to.</p>
 
   <h2>Network requests the extension makes</h2>
   <ul>
@@ -57,8 +62,8 @@ code{background:#1e1e1e;border:1px solid #282828;border-radius:4px;padding:1px 6
 
   <h2>Permissions, in plain terms</h2>
   <ul>
-    <li><code>storage</code> and <code>unlimitedStorage</code>: to keep the 60 MB index and the two small
-    settings above on your device.</li>
+    <li><code>storage</code> and <code>unlimitedStorage</code>: to keep the 60 MB index, the small
+    settings above, and your cutups and notes on your device.</li>
     <li><code>offscreen</code>: to run the SQLite engine in a background document, which Chrome requires for
     WebAssembly outside a page.</li>
     <li>Host access to <code>pro.nfl.com</code>: to add the search panel to the film room and fetch the clips

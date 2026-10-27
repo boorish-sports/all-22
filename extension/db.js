@@ -850,6 +850,27 @@ function search(q) {
   return rows;
 }
 
+/* Rows for named plays, for a cutup shared as a link: the link carries only
+   "old_game_id/play_id" pairs, and the receiver's own index fills in the rest.
+   Returned in game/play order; the caller puts them back in the link's order.
+   Mirrors server.py plays_by_id. */
+const PLAYS_MAX = 500;
+function playsById(q) {
+  const pairs = [];
+  for (const s of String(q.ids || "").split(",")) {
+    const m = /^(\d{10})\/(\d{1,6})$/.exec(s.trim());
+    if (m) pairs.push([m[1], Number(m[2])]);
+    if (pairs.length >= PLAYS_MAX) break;
+  }
+  if (!pairs.length) return [];
+  const sel = CORE.map(x => `"${x}"`).join(",");
+  const where = pairs.map(() => "(old_game_id = ? AND play_id = ?)").join(" OR ");
+  const rows = db.selectObjects(
+    `SELECT ${sel} FROM plays WHERE ${where} ORDER BY old_game_id, play_id`, pairs.flat());
+  for (const r of rows) r.week_slug = weekSlug(r.season_type, r.week);
+  return rows;
+}
+
 /* nflverse's own field descriptions, baked by build_dictionary.py and shipped
    with the extension so the panel needs no network to explain a column.
    offscreen.html sits at the extension root, so a relative fetch resolves. */
@@ -1094,6 +1115,7 @@ async function handle(op, payload) {
     return { total, groups: out };
   }
   if (op === "search") return search(payload);
+  if (op === "plays") return playsById(payload);
   return { error: "unknown op " + op };
 }
 
