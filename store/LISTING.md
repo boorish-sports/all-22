@@ -45,13 +45,15 @@ reference to the service the extension works with.
 Three at 1280×800 in `store/screenshots/`, chosen by Boorish on 2026-09-12 to
 show what NFL Pro's own sort cannot do, each over a Pro stats page. The
 originals were 2900×1616 captures; they are padded top and bottom with the
-page background to 16:10, not cropped.
+page background (#121212) to 16:10, then scaled, not cropped. The third was
+replaced on 2026-10-28 for 3.4.0's dictionary tabs.
 
 1. `1-rushing-clip.png` — Rhamondre Stevenson rushes, first-down runs through
    the guard gap, sorted EPA high, with the Sideline clip playing
 2. `2-receiving-facets.png` — Amon-Ra St. Brown receiving, facets narrowed to
    Left with YAC EPA ≥ 0.5 and screens excluded, 14 plays
-3. `3-dictionary.png` — the filter dictionary searched for "drive"
+3. `3-dictionary.png` — the filter dictionary in its category tabs, adding a
+   CPOE filter straight from its row, over the passing stats page sorted by CPOE
 
 Upload in that order; the first is the one shown in search results.
 
