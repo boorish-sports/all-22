@@ -1790,11 +1790,15 @@
       sel.innerHTML = list.map(r =>
         `<option value="${r.key}">${esc(r.label)}${r.n ? " (" + r.n + ")" : ""}</option>`).join("") +
         nflActionOptions();
-      sel.value = want && [...sel.options].some(o => o.value === want) ? want
+      /* A picked player lands on On field: every snap he was on the field for,
+         which is what picking a player usually means. Without an NFL Pro id
+         (so no On field), the position's own default view, as before. */
+      const pref = want || "nfl:field";
+      sel.value = [...sel.options].some(o => o.value === pref) ? pref
         : d.default && list.some(r => r.key === d.default) ? d.default : "any";
       facets = {}; excl = new Set();
       loadSubs();
-      run();                                          // land on the position's default view
+      run();
     }).catch(() => { sel.innerHTML = '<option value="any">Any</option>'; });
   }
 
