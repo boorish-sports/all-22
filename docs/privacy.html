@@ -24,7 +24,7 @@ code{background:#1e1e1e;border:1px solid #282828;border-radius:4px;padding:1px 6
   <h2>What is stored on your device</h2>
   <ul>
     <li><strong>The play index.</strong> A read-only SQLite database of public nflverse play-by-play data
-    (about 60 MB) is cached in the extension's IndexedDB so it is downloaded once, not every time.</li>
+    (about 90 MB) is cached in the extension's IndexedDB so it is downloaded once, not every time.</li>
     <li><strong>A game-ID map.</strong> When you open a clip, the extension learns which NFL Pro game
     identifier corresponds to which nflverse game and keeps that mapping in
     <code>chrome.storage.local</code> so it need not ask again.</li>
@@ -69,7 +69,7 @@ open and which NFL Pro filters you search with, exactly as it
 
   <h2>Permissions, in plain terms</h2>
   <ul>
-    <li><code>storage</code> and <code>unlimitedStorage</code>: to keep the 60 MB index, the small
+    <li><code>storage</code> and <code>unlimitedStorage</code>: to keep the 90 MB index, the small
     settings above, and your cutups and notes on your device.</li>
     <li><code>offscreen</code>: to run the SQLite engine in a background document, which Chrome requires for
     WebAssembly outside a page.</li>

@@ -19,17 +19,17 @@ reference to the service the extension works with.
 
     REQUIRES AN ACTIVE NFL PRO SUBSCRIPTION. This extension does nothing useful without one.
 
-    All-22 Film Search adds a search panel to NFL Pro's film room (pro.nfl.com). Filter 337 columns of nflverse play-by-play — tacklers, pressures, EPA, CPOE, personnel, play action, motion, drops, throwaways, and every other field nflverse publishes — and the matching plays appear instantly. Click a play and its Sideline and Endzone angles play in NFL Pro's own video player, in a side panel, under your own subscription. Frame stepping, speed control and keyboard shortcuts are built in. NFL Pro's own film-room filters work in the same search box — who was on the field, routes run, pass-rush and coverage snaps, nearest defender, separation, man or zone — including for the current season. Save plays into named cutups, write a note on any play, and share a cutup as a link with anyone else who has NFL Pro.
+    All-22 Film Search adds a search panel to NFL Pro's film room (pro.nfl.com). Filter 349 columns of nflverse play-by-play — tacklers, pressures, EPA, CPOE, personnel, play action, motion, drops, throwaways, and every other field nflverse publishes — and the matching plays appear instantly. Click a play and its Sideline and Endzone angles play in NFL Pro's own video player, in a side panel, under your own subscription. Frame stepping, speed control and keyboard shortcuts are built in. NFL Pro's own film-room filters work in the same search box — who was on the field, routes run, pass-rush and coverage snaps, nearest defender, separation, man or zone — including for the current season. Save plays into named cutups, write a note on any play, and share a cutup as a link with anyone else who has NFL Pro.
 
     HOW IT WORKS
-    • Search is entirely local. A SQLite index of public nflverse data (about 15 MB compressed) is downloaded from GitHub once and cached in your browser; in season, only the weeks that changed are fetched after that. Nothing you search leaves your machine.
+    • nflverse search is entirely local. A SQLite index of public nflverse data (about 20 MB compressed) is downloaded from GitHub once and cached in your browser; in season, only the weeks that changed are fetched after that. A search that uses only nflverse filters never leaves your machine.
     • NFL Pro is asked only when you act: one clip lookup per play you click, one film-room query when a search uses an NFL Pro filter, and one lookup per play for the On field list while it is showing, using your own logged-in session — the same requests the film room makes when you use it. No prefetching, no bulk downloading.
     • No video is ever downloaded, copied, cached or re-hosted. Playback is NFL Pro's own DRM player.
 
     PLEASE READ
     • Unofficial. Not affiliated with, endorsed by, or connected to the NFL or NFL Pro.
     • Fragile. It depends on undocumented NFL Pro endpoints that can change or disappear at any time. If that happens the extension stops working and there may be no fix.
-    • Free. There is a pay-what-you-want tip jar on the website; tips are thanks, not a purchase, and are not refunded.
+    • Free. There is a pay-what-you-want tip jar on the website (the cup button in the panel opens it); tips are thanks, not a purchase, and are not refunded.
 
     Data: nflverse-data (CC BY 4.0) with FTN charting; field definitions from nflreadr (MIT). Source code is MIT-licensed on GitHub.
 
@@ -67,12 +67,12 @@ Upload in that order; the first is the one shown in search results.
   preferences (first-run notice dismissed, playback speed), and the cutups
   and play notes the user saves, in chrome.storage.local. Nothing is sent
   anywhere.
-- `unlimitedStorage` — Caches the ~60 MB SQLite play index in IndexedDB so it
+- `unlimitedStorage` — Caches the ~90 MB SQLite play index in IndexedDB so it
   is downloaded once rather than on every visit. Exceeds the default quota.
 - `offscreen` — Runs the SQLite WebAssembly engine in an offscreen document.
   The content script runs inside pro.nfl.com, whose Content-Security-Policy
   forbids WebAssembly, and MV3 service workers are not suitable for holding a
-  60 MB database in memory.
+  ~90 MB database in memory.
 - Host `https://pro.nfl.com/*` — The extension's entire function: injects the
   search panel into the film room and, when the user clicks a play, requests
   that clip from NFL Pro under the user's own session.
@@ -99,7 +99,7 @@ user-activity, or website-content data. Certify all three statements.
     The search panel needs no account: open any page on https://pro.nfl.com
     (for example https://pro.nfl.com/film/plays) and click the gold ALL-22
     tab on the right edge. The panel downloads a public data file from
-    GitHub (about 15 MB, once), then every search runs locally. Type
+    GitHub (about 20 MB, once), then every search runs locally. Type
     "touchdown" in the "Text in description" box and click Search to see
     results. Saving a play to a cutup (star) and writing a note (pencil)
     work the same way and stay on the device.

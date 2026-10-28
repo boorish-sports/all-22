@@ -1,7 +1,7 @@
 # All-22 Film Search
 
 A Chrome extension that makes NFL Pro's film room searchable. Filter nflverse
-play-by-play (337 columns, including FTN charting) locally in your browser,
+play-by-play (349 columns, including FTN charting and participation) locally in your browser,
 click a play, and watch that clip in NFL Pro's own player, in a side panel on
 `pro.nfl.com`, under your own subscription.
 
