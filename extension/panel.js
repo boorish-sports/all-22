@@ -952,6 +952,11 @@
     padding:0;width:28px;height:28px;border-radius:4px;display:inline-flex;
     align-items:center;justify-content:center;cursor:pointer}
   #all22 .hd button.ib:hover{color:#b1924f;border-color:#b1924f}
+  /* the tip jar is a link, styled as the buttons beside it */
+  #all22 .hd a.ib{background:transparent;color:#adadad;border:1px solid #282828;padding:0;width:28px;height:28px;
+    border-radius:4px;display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;text-decoration:none}
+  #all22 .hd a.ib:hover{color:#b1924f;border-color:#b1924f}
+  #all22 .hd a.ib svg{width:16px;height:16px;display:block}
   #all22 .hd button.ib svg{width:16px;height:16px;display:block}
   /* hard boundary: nothing of ours reaches into the player subtree */
   #all22-video{contain:layout style}
@@ -1325,11 +1330,16 @@
   /* Lucide glyphs, inlined. The panel is plain DOM in the page world -- no React,
      no bundler -- so these carry lucide's own path data for chevrons-left,
      chevrons-right and x, with the two subpaths of each chevron joined into one. */
+  /* The tip jar is a plain link to the landing page's tip section, which
+     carries the terms (not a purchase, not refunded) beside Ko-fi's form.
+     Nothing loads until it is clicked: no Ko-fi frame inside NFL Pro. */
+  const TIP_URL = "https://boorish-sports.github.io/all-22/#tip";
   const ICON = {
     wide:   "m11 17-5-5 5-5M18 17l-5-5 5-5",
     narrow: "m6 17 5-5-5-5M13 17l5-5-5-5",
     hide:   "M18 6 6 18M6 6l12 12",
     cuts:   "M12 12H3M16 6H3M12 18H3M16 12l5 3-5 3v-6Z",
+    tip:    "M10 2v2M14 2v2M6 2v2M16 8a1 1 0 0 1 1 1v8a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V9a1 1 0 0 1 1-1h14a4 4 0 1 1 0 8h-1",
     star:   "M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z",
     note:   "M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z",
     book:   "M12 7v14M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z",
@@ -1350,6 +1360,7 @@
     <div class="tray" id="all22-tray" title="Narrow the panel to show NFL Pro">${svg(ICON.narrow)}<span>NFL Pro</span></div>
     <div class="hd"><h2>All-22 Film Search</h2>
       <span class="btns">
+        <a class="ib" id="a-tip" href="${TIP_URL}" target="_blank" rel="noopener noreferrer" title="Tip jar: opens the All-22 page in a new tab" aria-label="Tip jar (opens in a new tab)">${svg(ICON.tip)}</a>
         <span class="sgrp"><button class="ib" id="a-save" title="Save this play to a cutup (S)" aria-label="Save this play to a cutup" disabled>${svg(ICON.star)}</button><div id="a-savemenu" hidden></div></span>
         <button class="ib" id="a-notebtn" title="Note on this play (E)" aria-label="Note on this play" disabled>${svg(ICON.note)}</button>
         <button class="ib" id="all22-c" title="Cutups" aria-label="Cutups">${svg(ICON.cuts)}</button>
