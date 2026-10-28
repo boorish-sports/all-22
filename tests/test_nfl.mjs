@@ -85,4 +85,53 @@ const play = (g, p, extra) => Object.assign({
   assert.equal(k.posteam, "MIN");
   console.log("ok  NFL-only plays become ordinary rows");
 }
+
+// which picked player an NFL Pro filter is asked about (a QB is never the target)
+{
+  const cut = (a, b) => {
+    const i = src.indexOf(a), j = src.indexOf(b, i);
+    assert.ok(i > 0 && j > i, `${a.trim()} not found in panel.js`);
+    return src.slice(i, j);
+  };
+  const body = `let picked = null, extra = [], act = null;
+    const nflAction = () => (act ? NFL_ACTION_BY[act] : null);
+    ${cut("  const YN = ", "  const NFL_ACTION_BY = ")}
+    const NFL_ACTION_BY = Object.fromEntries(NFL_ACTIONS.map(a => [a.key, a]));
+    ${cut("  function nflWho(d) {", "  function playerLookup(")}
+    ${cut("  function nflHint(d) {", "  const lateHtml = ")}
+    ${cut("  function nflQuery() {", "  // anything besides season, week and team")}
+    return { set(p, e, a) { picked = p; extra = e; act = a || null; }, nflQuery, nflHint, NFLF_BY };`;
+  const m = new Function("q", "nflWhen", body)(() => ({ value: "" }), () => ({ season: 2026, seasonType: "REG" }));
+  const QB = { name: "Drake Maye", position: "QB", nfl_id: "Q" };
+  const WR = { name: "Puka Nacua", position: "WR", nfl_id: "W" };
+  const CB = { name: "Quinyon Mitchell", position: "CB", nfl_id: "C" };
+  const OT = { name: "Will Campbell", position: "OT", nfl_id: "T" };
+  const ask = (who, keys, act) => {
+    m.set(who, keys.map(([k, v]) => ({ col: "nfl:" + k, op: "eq", val: v, nfl: true })), act);
+    const p = m.nflQuery();
+    delete p.season; delete p.seasonType;
+    return p;
+  };
+  assert.deepEqual(ask(QB, [["targetLocation", "OUTSIDE_NUMBERS"]]),
+    { targetLocation: "OUTSIDE_NUMBERS", passerId: "Q" }, "a QB's target filter is on his throws, not to him");
+  assert.deepEqual(ask(QB, [["targetLocation", "OUTSIDE_NUMBERS"]], "nfl:field"),
+    { nflId: "Q", targetLocation: "OUTSIDE_NUMBERS", passerId: "Q" });
+  assert.deepEqual(ask(QB, [["dropbackTimeType", "LONG"], ["separationType", "OPEN"]]),
+    { dropbackTimeType: "LONG", passerId: "Q", separationType: "OPEN" });
+  assert.deepEqual(ask(WR, [["targetLocation", "DOWN_SEAMS"], ["dropbackTimeType", "QUICK"]]),
+    { targetLocation: "DOWN_SEAMS", targetId: "W", dropbackTimeType: "QUICK" }, "a receiver is never the passer");
+  assert.deepEqual(ask(WR, [["separationType", "OPEN"]], "nfl:routes"),
+    { routeRunnerId: "W", separationType: "OPEN", targetId: "W" });
+  assert.deepEqual(ask(CB, [["routeType", "VERTICAL"], ["def_coverageType", "PRESS"]], "nfl:cover"),
+    { defenderId: "C", coverageSnap: 1, routeType: "VERTICAL", def_coverageType: "PRESS" }, "a corner is no route runner");
+  assert.deepEqual(ask(OT, [["routeType", "IN"]]), { routeType: "IN" }, "a tackle fills no player key");
+  assert.match(ask(WR, [["def_alignment", "PLAYER_ALIGNMENT_CB"]]).error || "", /defensive player/);
+  m.set(QB, [], null);
+  assert.equal(m.nflHint(m.NFLF_BY.targetLocation), "Target location: on Drake Maye's throws.");
+  m.set(WR, [], null);
+  assert.equal(m.nflHint(m.NFLF_BY.targetLocation), "Target location: applies to Puka Nacua.");
+  m.set(CB, [], null);
+  assert.equal(m.nflHint(m.NFLF_BY.routeType), "Route type: about the play, on Quinyon Mitchell's snaps.");
+  console.log("ok  NFL Pro filters bind only to a player who fits them");
+}
 console.log("all NFL query checks passed");

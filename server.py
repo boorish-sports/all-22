@@ -440,7 +440,9 @@ class H(BaseHTTPRequestHandler):
 
     def do_GET(self):
         u = urlparse(self.path)
-        qs = parse_qs(u.query)
+        # blanks kept, as db.js reads them: "ids=" (NFL Pro found nothing)
+        # must match nothing, not drop the filter
+        qs = parse_qs(u.query, keep_blank_values=True)
         one = {k: v[0] for k, v in qs.items()}
         if u.path in ("/", "/index.html"):
             with open(os.path.join(HERE, "static", "index.html"), "rb") as f:

@@ -55,6 +55,8 @@ def build_cases(con):
     op("search_ids", "search", idq + "&order=game")
     op("search_ids_filtered", "search", idq + "&f=down:eq:1&order=epa")
     op("search_ids_junk", "search", "ids=bad,1/2&order=game")
+    # NFL Pro answered with no plays: an empty list still matches nothing
+    op("search_ids_empty", "search", "ids=&order=game")
     op("values_ids", "values", idq + "&cols=down,play_type,epa")
     op("known", "known", idq)
 

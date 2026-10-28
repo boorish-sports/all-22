@@ -437,9 +437,12 @@
      nflverse participation columns, which never record a snap he only lined
      up for. */
   const DEF_POS = /^(DE|DT|NT|DL|LB|ILB|OLB|MLB|EDGE|CB|S|SS|FS|SAF|DB)$/;
+  const ROUTE_POS = /^(WR|TE|RB|FB|HB)$/;
+  // which positions can fill each NFL Pro player key (nflId: anyone)
+  const WHO_POS = { passerId: /^QB$/, routeRunnerId: ROUTE_POS, targetId: ROUTE_POS, defenderId: DEF_POS };
   const NFL_ACTIONS = [
     { key: "nfl:field", label: "On field", who: "nflId" },
-    { key: "nfl:routes", label: "Routes run", who: "routeRunnerId", side: "off", pos: /^(WR|TE|RB|FB)$/ },
+    { key: "nfl:routes", label: "Routes run", who: "routeRunnerId", side: "off", pos: ROUTE_POS },
     { key: "nfl:rush", label: "Pass-rush snaps", who: "defenderId", side: "def", set: { passRushSnap: 1 } },
     { key: "nfl:cover", label: "Coverage snaps", who: "defenderId", side: "def", set: { coverageSnap: 1 } },
     { key: "nfl:rundef", label: "Run-defense snaps", who: "defenderId", side: "def", set: { runDefenseSnap: 1 } },
@@ -1816,11 +1819,24 @@
     const r = picked && q("#a-role").value;
     return r && r.startsWith("nfl:") ? NFL_ACTION_BY[r] || null : null;
   }
-  // does the picked player fit this filter's player key? a corner is no route runner
+  /* Does the picked player fit this filter's player key? A QB is never the
+     target, a receiver never the passer, a corner never the route runner.
+     A filter he does not fit is asked about the play instead, and his role
+     (or On field) still keeps the results to his snaps. */
   function nflWho(d) {
     if (!picked || !picked.nfl_id || !d.who) return false;
-    const def = DEF_POS.test(picked.position || "");
-    return d.who === "defenderId" ? def : d.who === "nflId" ? true : !def;
+    if (d.who === "nflId") return true;
+    const fit = WHO_POS[d.who];
+    return !!fit && fit.test(picked.position || "");
+  }
+  // the player key a filter fills with the picked player: its own when he
+  // fits it, the passer's for a receiving filter when he is the QB (his throws
+  // outside the numbers), none when it can only be about the play
+  function nflBind(d) {
+    if (nflWho(d)) return d.who;
+    if ((d.who === "targetId" || d.who === "routeRunnerId") && picked && picked.nfl_id
+      && WHO_POS.passerId.test(picked.position || "")) return "passerId";
+    return null;
   }
 
   function playerLookup(term) {
@@ -2626,7 +2642,11 @@
   function nflHint(d) {
     if (d.needs && !(picked && nflWho(d)))
       return `${d.label} is about one player's snaps: pick a ${d.who === "defenderId" ? "defensive " : ""}player above.`;
-    return d.who && picked && nflWho(d) ? `${d.label}: applies to ${picked.name}.` : "";
+    if (!d.who || !picked) return "";
+    const k = nflBind(d);
+    return k === d.who ? `${d.label}: applies to ${picked.name}.`
+      : k === "passerId" ? `${d.label}: on ${picked.name}'s throws.`
+      : `${d.label}: about the play, on ${picked.name}'s snaps.`;
   }
   const lateHtml = col => {
     const n = lateNote(col);
@@ -3630,7 +3650,8 @@
       if (!d) continue;
       if (d.needs && !nflWho(d)) return { error: nflHint(d) };
       params[d.key] = f.val;
-      if (nflWho(d) && !(d.who in params)) params[d.who] = id;
+      const k = nflBind(d);
+      if (k && !(k in params)) params[k] = id;
     }
     return params;
   }
