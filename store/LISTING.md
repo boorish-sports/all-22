@@ -96,21 +96,9 @@ user-activity, or website-content data. Certify all three statements.
 
 ## Test instructions tab
 
-    The search panel needs no account: open any page on https://pro.nfl.com
-    (for example https://pro.nfl.com/film/plays) and click the gold ALL-22
-    tab on the right edge. The panel downloads a public data file from
-    GitHub (about 20 MB, once), then every search runs locally. Type
-    "touchdown" in the "Text in description" box and click Search to see
-    results. Saving a play to a cutup (star) and writing a note (pencil)
-    work the same way and stay on the device.
+Limit 500 characters (this is 423).
 
-    Three features ask NFL Pro itself and so need an active NFL Pro
-    subscription, which we cannot provide: clip playback, the NFL Pro
-    filters in the "Any filter" box and the Action menu (routes run,
-    coverage snaps, pass-rush snaps, On field...), and the On field list of
-    the 22 players on a play. Without a subscription, clicking a play shows
-    NFL Pro's own sign-in prompt inside the panel. No test account is needed
-    for the search, the nflverse filters, cutups, notes, or the dictionary.
+    Open any page on https://pro.nfl.com and click the gold ALL-22 tab on the right edge. A public data file (about 20 MB) downloads once; search then runs locally. Type "touchdown" in "Text in description" and click Search. Cutups (star) and notes (pencil) work without an account. Clip playback, NFL Pro filters (routes, coverage, pass rush) and the On field player list need an NFL Pro subscription, which we cannot provide.
 
 ## Distribution tab
 
