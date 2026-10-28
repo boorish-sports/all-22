@@ -856,7 +856,9 @@
       return;
     }
     if (e.key === "Escape" && !document.getElementById("a-dict").hidden) {
-      showDict(false);
+      if (selFor) return;           // an open menu closes first, by its own handler
+      // one step back at a time: the open filter editor, then the dictionary
+      if (dictEd) dictToggle(dictEd.k); else showDict(false);
       e.preventDefault();
       return;
     }
@@ -993,6 +995,78 @@
   #all22 .late{flex:0 0 100%;color:#9a9a9a;font-size:10.5px;line-height:1.4;margin-top:4px}
   #all22 .late.warn{color:#e0a86b}
   #all22 .dempty{padding:16px 14px;color:#bdbdbd;font-size:12px}
+  /* the dictionary's two levels: category tabs, then section chips inside one.
+     Buttons here assert every property, because NFL's page styles bare buttons */
+  #all22 .dtabs{flex:none;display:flex;gap:2px;padding:0 8px;border-bottom:1px solid #282828;
+    background:#191919;overflow-x:auto;scrollbar-width:none}
+  #all22 .dtab{flex:none;background:none;border:0;border-bottom:2px solid transparent;border-radius:0;margin:0;
+    color:#adadad;font-family:inherit;font-size:12px;font-weight:600;letter-spacing:0;text-transform:none;
+    line-height:1.3;padding:9px 8px 7px;cursor:pointer;white-space:nowrap}
+  #all22 .dtab:hover{color:#e6e6e6}
+  #all22 .dtab.on{color:#e6e6e6;border-bottom-color:#b1924f}
+  #all22 .dtab.dim{opacity:.38}
+  #all22 .dsecs{flex:none;display:flex;gap:6px;padding:8px 14px;border-bottom:1px solid #282828;
+    background:#151515;overflow-x:auto;scrollbar-width:thin;scrollbar-color:#333 transparent}
+  #all22 .dsecs[hidden]{display:none}
+  #all22 .dsc{flex:none;background:#1e1e1e;color:#adadad;border:1px solid #282828;border-radius:11px;margin:0;
+    padding:3px 10px;font-family:inherit;font-size:11px;font-weight:500;line-height:1.4;letter-spacing:0;
+    text-transform:none;cursor:pointer;white-space:nowrap;display:inline-flex;gap:6px;align-items:baseline}
+  #all22 .dsc:hover{color:#e6e6e6}
+  #all22 .dsc .n{color:#8f8f8f;font-size:10px}
+  #all22 .dsc.on{background:#b1924f;color:#17130a;border-color:#b1924f;font-weight:600}
+  #all22 .dsc.on .n{color:#2a2210}
+  #all22 .dsc.dim{opacity:.38}
+  /* a section's header stays put while its rows scroll under it */
+  #all22 .dsh{position:sticky;top:0;z-index:2;display:flex;justify-content:space-between;align-items:baseline;
+    padding:6px 14px 5px;background:#171717;border-bottom:1px solid #232323;color:#9a9a9a;font-size:10px;
+    letter-spacing:.08em;text-transform:uppercase;font-weight:600}
+  #all22 .dsh .n{color:#8a8a8a;letter-spacing:.02em}
+  #all22 .dlink{background:none;border:0;padding:0;margin:0;color:#b1924f;font:inherit;cursor:pointer}
+  #all22 .dlink:hover{color:#c9a961;text-decoration:underline}
+  /* + on every row opens a filter editor inside it */
+  #all22 .dplus{align-self:center;flex:none;width:24px;height:24px;box-sizing:border-box;margin:0;padding:0;
+    border-radius:4px;border:1px solid #2e2e2e;background:#1a1a1a;color:#bdbdbd;display:inline-flex;
+    align-items:center;justify-content:center;cursor:pointer}
+  #all22 .dplus:hover,#all22 .dent.open .dplus{color:#b1924f;border-color:#b1924f}
+  #all22 .dplus svg{width:14px;height:14px;display:block}
+  #all22 .dent.open,#all22 .dent.open:hover{background:#17150f;border-left:3px solid #b1924f;padding-left:11px}
+  #all22 .dact{display:inline-block;margin-right:6px;color:#17130a;background:#b1924f;border-radius:3px;
+    padding:0 5px;font-weight:700;font-size:9px;letter-spacing:.06em;line-height:15px}
+  #all22 .ded{margin-top:9px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;cursor:default}
+  #all22 .ded input,#all22 .ded select{height:28px;box-sizing:border-box;margin:0;background:#1e1e1e;
+    border:1px solid #2e2e2e;color:#e6e6e6;padding:0 8px;border-radius:4px;font-family:inherit;font-size:12px}
+  #all22 .ded input{width:120px}
+  #all22 .ded select{-webkit-appearance:none;appearance:none;padding-right:24px;max-width:240px;
+    text-overflow:ellipsis;cursor:pointer;background-repeat:no-repeat;background-position:right 8px center;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23adadad' stroke-width='1.5'/%3E%3C/svg%3E")}
+  #all22 .ded input:focus,#all22 .ded select:focus{outline:none;border-color:#b1924f}
+  #all22 .ded .dhint{font-family:ui-monospace,Menlo,monospace;font-size:11px}
+  #all22 .ded .dgrow{flex:1}
+  #all22 .ded .a22b{height:28px;box-sizing:border-box;display:inline-flex;align-items:center;gap:5px}
+  #all22 .ded .a22b svg{width:13px;height:13px;stroke-width:2.5}
+  #all22 .ded .a22b:disabled{opacity:.4;cursor:default}
+  #all22 .ded .a22b:not(.pri):disabled:hover{color:#adadad;border-color:#282828}
+  #all22 .dseg{display:inline-flex;gap:4px}
+  #all22 .dsb{height:28px;box-sizing:border-box;margin:0;background:#1e1e1e;color:#adadad;border:1px solid #2e2e2e;
+    padding:0 12px;border-radius:4px;font-family:inherit;font-size:12px;font-weight:600;letter-spacing:0;
+    text-transform:none;cursor:pointer;display:inline-flex;gap:7px;align-items:center}
+  #all22 .dsb:hover{color:#e6e6e6}
+  #all22 .dsb .dn{font:400 10.5px ui-monospace,Menlo,monospace}
+  #all22 .dsb.on{background:#b1924f;color:#17130a;border-color:#b1924f}
+  #all22 .dsb.on .dn{color:#2a2210}
+  #all22 .dneed{flex:0 0 100%;color:#9a9a9a;font-size:11px}
+  #all22 .dneed.warn,#all22 .derr.warn{color:#e0a86b}
+  #all22 .derr{flex:0 0 100%;color:#e0736b;font-size:11px}
+  #all22 .derr[hidden]{display:none}
+  /* the active filters, in view while you build them */
+  #all22 .dtray{flex:none;display:flex;flex-wrap:wrap;gap:6px 8px;align-items:center;padding:8px 14px;
+    border-top:1px solid #3a3222;background:#1a1710}
+  #all22 .dtray[hidden]{display:none}
+  #all22 .dtcap{color:#b1924f;font-size:10px;letter-spacing:.14em;text-transform:uppercase;font-weight:700}
+  #all22 .dtray .dtchips{flex:1;min-width:0}
+  #all22 .dtray .a22b{padding:3px 9px;font-size:11px}
+  #all22 .dtray .chip.fresh{animation:a22fresh 1.2s ease-out}
+  @keyframes a22fresh{0%{box-shadow:0 0 0 3px #b1924f99}100%{box-shadow:0 0 0 0 #b1924f00}}
   #all22 .dfoot{padding:8px 14px;border-top:1px solid #282828;background:#191919;
     color:#a3a3a3;font-size:10.5px;line-height:1.4}
   #all22 .dfoot a{color:#b1924f;text-decoration:none}
@@ -1418,7 +1492,10 @@
         <input id="a-dsearch" placeholder="Search filter options" autocomplete="off">
         <span class="dcount"></span>
       </div>
+      <div class="dtabs" id="a-dtabs" role="tablist" aria-label="Filter categories"></div>
+      <div class="dsecs" id="a-dsecs" aria-label="Sections" hidden></div>
       <div class="dlist" id="a-dlist"></div>
+      <div class="dtray" id="a-dtray" hidden></div>
       <div class="dfoot">Definitions from <a href="https://github.com/nflverse/nflreadr" target="_blank" rel="noopener">nflreadr</a> (MIT).
         Play data from <a href="https://github.com/nflverse/nflverse-data" target="_blank" rel="noopener">nflverse</a> (CC BY 4.0),
         charting by FTN Data via nflverse. Not affiliated with the NFL, NFL Pro, nflverse or FTN.</div>
@@ -1803,6 +1880,73 @@
      Profiles load only for the rows on screen. Profiling all 275 up front costs
      about four seconds of table scans, which is a long time to stare at a
      spinner for a reference you are going to scroll a screenful of. */
+
+  /* Where each option sits: a tab, then a section inside it. Rules run in
+     order and the first match wins, so the unambiguous families (kickoff_,
+     punt_...) go first. NFL Pro's filters are matched as "nfl:<key>", the way
+     "Any filter" keys them. A column no rule names -- a field nflverse adds
+     next season -- lands in "Other" rather than vanishing; the category test
+     (tests/test_dict_cats.mjs) fails until it is given a home. */
+  const DICT_TABS = [["all", "All"], ["off", "Offense"], ["def", "Defense"],
+    ["st", "Special teams"], ["sit", "Game state"], ["res", "Result"], ["game", "Team & game"]];
+  const DICT_RULES = [
+    ["st", "Kickoffs", /^(kickoff_|own_kickoff_|lateral_kickoff_)|^home_opening_kickoff$/],
+    ["st", "Punts", /^(punt_|punter_|lateral_punt_)/],
+    ["st", "Field goals & tries", /^(field_goal_|kick_distance|extra_point_|kicker_|blocked_player_|two_point_|defensive_two_point_|defensive_extra_point_)/],
+    ["st", "Returns", ["return_team", "return_yards", "lateral_return", "touchback"]],
+    ["st", "General", ["special_teams_play", "st_play_type", "special"]],
+
+    ["off", "Passing", /^(passer|passing_|lateral_sack_)|^(qb_dropback|pass_attempt|pass|complete_pass|incomplete_pass|pass_length|pass_location|air_yards|qb_scramble|qb_spike|cp|cpoe|xpass|pass_oe|time_to_throw|read_thrown|is_qb_out_of_pocket|is_throw_away|is_interception_worthy|is_qb_fault_sack|ngs_air_yards|nfl:dropbackTimeType)$/],
+    ["off", "Play design", ["is_play_action", "is_rpo", "is_screen_pass", "is_trick_play"]],
+    ["off", "Receiving", /^(receiver|receiving_|lateral_receiv|xyac_)|^(yards_after_catch|lateral_reception|is_catchable_ball|is_contested_ball|is_created_reception|is_drop|route|nfl:routeType|nfl:receiverAlignment|nfl:rec_coverageType|nfl:rec_motion|nfl:separationType|nfl:targetLocation)$/],
+    ["off", "Rushing", /^(rusher|rushing_|lateral_rush)|^(rush_attempt|rush|run_location|run_gap|qb_kneel|is_qb_sneak|nfl:maxSpeedType)$/],
+    ["off", "Formation & personnel", ["shotgun", "no_huddle", "is_no_huddle", "is_motion", "offense_formation",
+      "offense_personnel", "n_offense", "n_offense_backfield", "qb_location", "starting_hash",
+      "offense_players", "offense_names", "offense_numbers", "offense_positions",
+      "nfl:offensePersonnel", "nfl:rb", "nfl:te", "nfl:wr"]],
+    ["off", "Primary player", ["name", "id", "jersey_number", "fantasy_player_name", "fantasy_player_id", "fantasy", "fantasy_id"]],
+
+    ["def", "Pass rush", /^@(sack|qb_hit)_|^(sack|qb_hit|n_blitzers|n_pass_rushers|number_of_pass_rushers|was_pressure|nfl:pressure|nfl:passRushSnap|nfl:def_pressure|nfl:turnoversCausedByPressure)$/],
+    ["def", "Coverage", /^@pass_defense_|^(defense_man_zone_type|defense_coverage_type|nfl:teamCoverageTypeManZone|nfl:teamCoverageTypeSafetyShell|nfl:coverageSnap|nfl:def_coverageType|nfl:targetNearestDefender|nfl:receptionNearestDefender|nfl:receivingTDNearestDefender)$/],
+    ["def", "Tackling & run defense", /^@(solo_tackle|assist_tackle|tackle_with_assist|tackle_for_loss)_|^(tackled_for_loss|solo_tackle|assist_tackle|tackle_with_assist|nfl:runStuff|nfl:runDefenseSnap|nfl:def_runStuff|nfl:tackleStop|nfl:hustleStop)$/],
+    ["def", "Takeaways", /^(@forced_fumble_|@fumble_recovery_|interception_player|lateral_interception_)|^interception$/],
+    ["def", "Personnel & alignment", ["defense_personnel", "n_defense", "defenders_in_box", "n_defense_box",
+      "defense_players", "defense_names", "defense_numbers", "defense_positions", "nfl:personnel", "nfl:linedUpInTheBox", "nfl:def_alignment", "nfl:defensiveSnap"]],
+
+    ["sit", "Down & distance", ["down", "ydstogo", "goal_to_go", "yardline_100", "yrdln", "side_of_field"]],
+    ["sit", "Clock & timeouts", /^(qtr|time|game_half|quarter_seconds_remaining|half_seconds_remaining|game_seconds_remaining|quarter_end|play_clock|timeout|timeout_team|.*_timeouts_remaining)$/],
+    ["sit", "Score", /^(score_differential|score_differential_post|(home|away|posteam|defteam)_score|(posteam|defteam)_score_post|total_(home|away)_score)$/],
+    ["sit", "Win probability & expected points", /^(wp|def_wp|home_wp|away_wp|home_wp_post|away_wp_post|vegas_wp|vegas_home_wp|ep|no_score_prob|opp_fg_prob|opp_safety_prob|opp_td_prob|fg_prob|td_prob|safety_prob)$|^total_(home|away)_/],
+    ["sit", "Drive & series", /^(drive|fixed_drive|series)|^ydsnet$/],
+
+    ["res", "EPA & success", /^(epa|qb_epa|air_epa|yac_epa|comp_air_epa|comp_yac_epa|success|wpa|air_wpa|yac_wpa|comp_air_wpa|comp_yac_wpa|vegas_wpa|vegas_home_wpa)$/],
+    ["res", "First downs & conversions", /^(first_down|third_down_|fourth_down_)/],
+    ["res", "Scoring", /^(touchdown|pass_touchdown|rush_touchdown|return_touchdown|td_team|td_player_|sp|safety|safety_player_)/],
+    ["res", "Fumbles", /^(@fumbled_|fumble$|fumble_lost|fumble_forced|fumble_not_forced|fumble_out_of_bounds)/],
+    ["res", "Penalties", /^penalty/],
+    ["res", "The play", ["play_type", "play_type_nfl", "play", "desc", "yards_gained", "end_yard_line", "end_clock_time",
+      "out_of_bounds", "aborted_play", "replay_or_challenge", "replay_or_challenge_result", "play_deleted", "lateral_recovery"]],
+
+    ["game", "Teams", ["posteam", "defteam", "home_team", "away_team", "posteam_type", "possession_team",
+      "home_coach", "away_coach"]],
+    ["game", "Schedule", ["season", "season_type", "week", "game_date", "div_game", "start_time", "time_of_day"]],
+    ["game", "Venue & weather", ["location", "game_stadium", "stadium", "stadium_id", "temp", "wind", "weather", "roof", "surface"]],
+    ["game", "Lines & final score", ["spread_line", "total_line", "result", "total"]],
+    ["game", "IDs", ["play_id", "game_id", "old_game_id", "order_sequence", "nflverse_game_id", "nflverse_play_id",
+      "ftn_game_id", "ftn_play_id", "nfl_api_id", "players_on_play", "date_pulled"]],
+  ];
+  const DICT_OTHER = ["game", "Other"];
+  // every section in the order the list shows them: by tab, then as the rules
+  // name them (special teams match first but list third), "Other" last
+  const DICT_SECS = DICT_TABS.flatMap(([id]) => DICT_RULES.filter(r => r[0] === id).map(r => [r[0], r[1]]))
+    .concat([DICT_OTHER]);
+  function dictPlace(key) {
+    for (const [tab, sec, t] of DICT_RULES)
+      if (Array.isArray(t) ? t.includes(key) : t.test(key)) return [tab, sec];
+    return DICT_OTHER;
+  }
+  /* ---- end of the category map ---- */
+
   const PROF = new Map();          // col -> profile, once fetched
   let dictObs = null, dictQueue = new Set(), dictTimer = null;
   // A profile is only true of the scope it was read under, so the cache is
@@ -1817,6 +1961,9 @@
     const list = q("#a-dlist");
     if (!list) return;           // run() can fire before the dictionary exists
     list.querySelectorAll(".dent").forEach(el => {
+      // NFL Pro rows list their own values and are never profiled: left alone,
+      // not blanked to a "…" nothing would ever fill in again
+      if (nflDef(el.dataset.k)) return;
       el.querySelector(".dval").innerHTML = '<span class="dn">…</span>';
       // the lag note names the weeks the new scope is missing, so it moves too
       const n = lateNote(el.dataset.k), late = el.querySelector(".late");
@@ -1848,58 +1995,336 @@
     }, 90);
   }
 
+  // what the dictionary is showing: a tab, maybe one section of it, and the
+  // one row whose filter editor is open ({ k, op, val }), if any
+  let dictTab = "all", dictSec = null, dictEd = null;
+  const DICT_TAB_NAME = Object.fromEntries(DICT_TABS);
+  const PLUS = "M5 12h14M12 5v14", MINUS = "M5 12h14";
+  const DICT_NUMOPS = [["gte", "≥"], ["gt", ">"], ["eq", "="], ["lte", "≤"], ["lt", "<"], ["notnull", "is set"]];
+  const DICT_TEXTOPS = [["eq", "="], ["like", "contains"], ["notnull", "is set"]];
+
+  // rows are found by walking, not by selector: keys like "nfl:pressure" and
+  // "@sack_player_name" would each need escaping
+  const dictRow = k => [...p.querySelectorAll("#a-dlist .dent")].find(el => el.dataset.k === k) || null;
+  const nActive = k => extra.filter(f => f.col === k).length;
+  const actBadge = k => {
+    const n = nActive(k);
+    return n ? `<span class="dact">${n > 1 ? n + " active" : "active"}</span>` : "";
+  };
+
   function paintDictRow(col) {
-    const row = [...p.querySelectorAll(".dent")].find(el => el.dataset.k === col);
+    const row = dictRow(col);
     const d = PROF.get(col);
     if (!row || !d) return;
     const box = row.querySelector(".dval");
     box.innerHTML = profileHtml(d);
-    wireValueClicks(box, col);
+    wireValueClicks(box, col, v => dictToggle(col, { val: v }));
     if (!row.querySelector(".ddesc").textContent && d.desc)
       row.querySelector(".ddesc").textContent = d.desc;
-    row.querySelector(".dkind").textContent =
+    row.querySelector(".dkt").textContent =
       (d.kind === "yesno" ? "yes / no" : d.kind === "number" ? "number"
        : d.kind === "list" ? d.distinct + " values" : d.kind === "empty" ? "empty" : "text")
       + (GROUPS[col] ? ` · ${GROUPS[col].members.length} cols` : "");
+    // an open editor learns the column's values: a list becomes a menu, a
+    // yes/no gets its counts, a number its range
+    if (dictEd && dictEd.k === col) dictRowState(col, true);
+  }
+
+  const plusHtml = (name, open) =>
+    `<button type="button" class="dplus" aria-expanded="${open}" title="${open ? "Close" : "Add a filter"}"` +
+    ` aria-label="${open ? "Close the filter for" : "Add a filter on"} ${esc(name)}">${svg(open ? MINUS : PLUS)}</button>`;
+
+  function dictRowHtml(c) {
+    const k = c.key, open = !!(dictEd && dictEd.k === k);
+    const top = c.nfl
+      ? `<span class="dname">${esc(c.name)}</span>
+         <span class="dkind"><span class="dactw">${actBadge(k)}</span><span class="src">NFL PRO</span><span class="dkt">${
+           esc(c.nfl.group)}${c.nfl.needs ? " · needs a player" : ""}</span></span>`
+      : `<span class="dname">${esc(c.name)}</span>
+         <span class="dkey">${esc(k)}</span>
+         <span class="dkind"><span class="dactw">${actBadge(k)}</span><span class="dkt">${
+           BINARY.has(k) ? "yes / no" : c.type === "TEXT" ? "text" : "number"}${
+           GROUPS[k] ? ` · ${GROUPS[k].members.length} cols` : ""}</span></span>`;
+    const body = c.nfl
+      ? `<div class="ddesc">From NFL Pro's film room: one request per search, any season NFL Pro covers.</div>
+         <div class="dval">${c.nfl.values.map(([v, l]) => `<b data-v="${esc(v)}">${esc(l)}</b>`).join(" · ")}</div>`
+      : `<div class="ddesc">${esc(DESCRIBE[k] || "")}</div>
+         ${lateHtml(k)}
+         <div class="dval"><span class="dn">…</span></div>`;
+    return `<div class="dent${open ? " open" : ""}" data-k="${esc(k)}">
+      <div class="dtop">${top}${plusHtml(c.name, open)}</div>${body}${open ? editorHtml(k) : ""}</div>`;
+  }
+
+  /* ---- the filter editor inside a row ----
+     The control follows the column: Yes / No for a flag, NFL Pro's own values
+     for its filters, a comparison and a box for a number, the column's values
+     as a menu when it has few enough to list (the profile says so), and a
+     box for free text. "is set" needs no value; "contains" always types one. */
+  function dictDefaults(k) {
+    const d = nflDef(k), prof = PROF.get(k);
+    if (d) return { op: "eq", val: d.values[0][0] };
+    if (BINARY.has(k)) return { op: "eq", val: "1" };
+    if (prof && prof.kind === "list" && prof.values.length) return { op: "eq", val: String(prof.values[0].v) };
+    return { op: NUMERIC(k) ? "gte" : "eq", val: "" };
+  }
+
+  const dictCanAdd = k => !!dictEd && dictEd.k === k &&
+    (!!nflDef(k) || BINARY.has(k) || dictEd.op === "notnull" || String(dictEd.val).trim() !== "");
+
+  function editorHtml(k) {
+    const e = dictEd, d = nflDef(k), prof = PROF.get(k);
+    const opts = (list, cur) => list.map(([v, l, n]) =>
+      `<option value="${esc(v)}"${v === cur ? " selected" : ""}${n ? ` data-n="${esc(n)}"` : ""}>${esc(l)}</option>`).join("");
+    let ctl = "", note = "";
+    if (d) {
+      ctl = `<select data-r="val" aria-label="${esc(d.label)}">${opts(d.values, e.val)}</select>`;
+      const h = nflHint(d);
+      if (h) note = `<div class="dneed${d.needs && !(picked && nflWho(d)) ? " warn" : ""}">${esc(h)}</div>`;
+    } else if (BINARY.has(k)) {
+      const n = v => (prof && prof.kind === "yesno" ? nfmt(v === "1" ? prof.yes : prof.no) : "");
+      ctl = `<span class="dseg" role="group" aria-label="Yes or no">` + [["1", "Yes"], ["0", "No"]].map(([v, l]) =>
+        `<button type="button" class="dsb${e.val === v ? " on" : ""}" data-b="${v}" aria-pressed="${e.val === v}">` +
+        `${l}<span class="dn">${n(v)}</span></button>`).join("") + `</span>`;
+    } else {
+      ctl = `<select data-r="op" aria-label="Comparison">${opts(NUMERIC(k) ? DICT_NUMOPS : DICT_TEXTOPS, e.op)}</select>`;
+      const list = prof && prof.kind === "list" && prof.values.length;
+      if (e.op === "notnull") {
+        // nothing to type
+      } else if (list && e.op !== "like") {
+        if (!prof.values.some(x => String(x.v) === e.val)) e.val = String(prof.values[0].v);
+        ctl += `<select data-r="val" aria-label="Value">${
+          opts(prof.values.map(x => [String(x.v), String(x.v), nfmt(x.n)]), e.val)}</select>`;
+      } else {
+        const ex = prof && prof.values && prof.values.length ? String(prof.values[0].v).slice(0, 24) : "";
+        ctl += `<input data-r="val" aria-label="Value" autocomplete="off" value="${esc(String(e.val))}"` +
+          ` placeholder="${NUMERIC(k) ? "value" : ex ? "e.g. " + esc(ex) : "text"}">`;
+      }
+      if (prof && prof.kind === "number")
+        ctl += `<span class="dn dhint">range ${esc(sig(prof.min))} … ${esc(sig(prof.max))} · avg ${esc(sig(prof.avg))}</span>`;
+    }
+    return `<div class="ded">${ctl}<span class="dgrow"></span>
+      <button type="button" class="a22b" data-act="cancel">Cancel</button>
+      <button type="button" class="a22b pri" data-act="add"${dictCanAdd(k) ? "" : " disabled"}>${svg(PLUS)}Add filter</button>
+      ${note}<div class="derr" hidden></div></div>`;
+  }
+
+  function wireEditor(el) {
+    const ed = el.querySelector(".ded"), k = el.dataset.k;
+    if (!ed || !dictEd || dictEd.k !== k) return;
+    const add = ed.querySelector('[data-act="add"]');
+    const sync = () => { add.disabled = !dictCanAdd(k); };
+    ed.querySelectorAll("[data-b]").forEach(b => b.onclick = () => {
+      dictEd.val = b.dataset.b;
+      ed.querySelectorAll("[data-b]").forEach(x => {
+        x.classList.toggle("on", x === b);
+        x.setAttribute("aria-pressed", String(x === b));
+      });
+    });
+    ed.querySelectorAll("select[data-r]").forEach(s => s.addEventListener("change", () => {
+      dictEd[s.dataset.r] = s.value;
+      // the comparison decides which value control fits, so it redraws them
+      if (s.dataset.r === "op") { dictRowState(k); focusEditor(k, "op"); }
+      else sync();
+    }));
+    const inp = ed.querySelector("input[data-r]");
+    if (inp) {
+      inp.addEventListener("input", () => { dictEd.val = inp.value; sync(); });
+      inp.addEventListener("keydown", e => {
+        if (e.key !== "Enter") return;
+        e.preventDefault();
+        e.stopPropagation();        // the panel's own Enter runs a search
+        dictSubmit(k);
+      });
+    }
+    ed.querySelector('[data-act="cancel"]').onclick = () => dictToggle(k);
+    add.onclick = () => dictSubmit(k);
+  }
+
+  function focusEditor(k, which) {
+    const el = dictRow(k), ed = el && el.querySelector(".ded");
+    if (!ed) return;
+    const f = (which && ed.querySelector(`[data-r="${which}"]`)) || ed.querySelector("input[data-r]")
+      || ed.querySelector('select[data-r="val"]') || ed.querySelector('[data-act="add"]');
+    if (f) f.focus({ preventScroll: true });
+    el.scrollIntoView({ block: "nearest" });
+  }
+
+  // Bring one row in line with dictEd: its + and its editor. keepFocus puts
+  // the caret back where it was, for a redraw the user did not ask for.
+  function dictRowState(k, keepFocus) {
+    const el = dictRow(k);
+    if (!el) return;
+    const open = !!(dictEd && dictEd.k === k);
+    const a = document.activeElement;
+    const had = keepFocus && a && el.contains(a) && a.dataset ? a.dataset.r : null;
+    const caret = had && a.tagName === "INPUT" ? a.selectionStart : null;
+    el.classList.toggle("open", open);
+    el.querySelector(".dplus").outerHTML = plusHtml(el.querySelector(".dname").textContent, open);
+    const old = el.querySelector(".ded");
+    if (old) old.remove();
+    if (open) {
+      el.insertAdjacentHTML("beforeend", editorHtml(k));
+      wireEditor(el);
+      const back = had && el.querySelector(`.ded [data-r="${had}"]`);
+      if (back) {
+        back.focus({ preventScroll: true });
+        if (caret != null && back.setSelectionRange) back.setSelectionRange(caret, caret);
+      }
+    }
+  }
+
+  // The + (or a click on the row, or on one of its values): open this row's
+  // editor and close any other; the same again closes it. A value opens it
+  // filled in with that value.
+  function dictToggle(k, preset) {
+    const was = dictEd && dictEd.k;
+    if (was === k && !preset) dictEd = null;
+    else {
+      dictEd = Object.assign({}, was === k ? dictEd : Object.assign({ k }, dictDefaults(k)), preset || {});
+      // a picked value wants "=": "is set" takes none, "contains" is for typing
+      if (preset && (dictEd.op === "notnull" || dictEd.op === "like")) dictEd.op = "eq";
+    }
+    if (was && was !== k) dictRowState(was);
+    dictRowState(k);
+    if (dictEd && dictEd.k === k) focusEditor(k);
+  }
+
+  function dictSubmit(k) {
+    if (!dictCanAdd(k)) return;
+    // a filter belongs to the search, so from a cutup, go back to the search first
+    if (cutView) leaveCuts();
+    const op = dictEd.op, val = String(dictEd.val).trim();
+    const err = addFilter(k, op, val);
+    if (err) {
+      const box = dictRow(k) && dictRow(k).querySelector(".derr");
+      if (box) { box.hidden = false; box.className = "derr" + (err.warn ? " warn" : ""); box.textContent = err.msg; }
+      return;
+    }
+    dictEd = null;
+    dictRowState(k);
+    const f = extra.find(x => x.col === k && (x.nfl || BINARY.has(k) || (x.op === op && x.val === val)));
+    drawDictTray(extra.indexOf(f));
+  }
+
+  /* The active filters, at the foot of the dictionary: the same list as the
+     Filters strip's "Added" row, redrawn whenever that is (drawChips), so the
+     two never disagree. The row badges follow it too. */
+  function drawDictTray(fresh) {
+    const t = q("#a-dtray");
+    if (!t) return;
+    p.querySelectorAll("#a-dlist .dent").forEach(el => {
+      const w = el.querySelector(".dactw");
+      if (w) w.innerHTML = actBadge(el.dataset.k);
+    });
+    t.hidden = !extra.length;
+    if (!extra.length) { t.innerHTML = ""; return; }
+    t.innerHTML = `<span class="dtcap">Active filters</span>
+      <span class="dtchips fac">${extra.map((f, i) => {
+        const txt = esc(colChipText(f));
+        return `<span class="chip on${i === fresh ? " fresh" : ""}" data-i="${i}">` +
+          `<button type="button" class="inc" title="Remove">${txt}</button>` +
+          `<button type="button" class="exc" title="Remove" aria-label="Remove ${txt}">&#10005;</button></span>`;
+      }).join("")}</span>
+      <button type="button" class="a22b" data-act="clear">Clear</button>
+      <button type="button" class="a22b pri" data-act="show">Show plays</button>`;
+    // like the Filters strip, both halves of a chip remove it
+    const edit = fn => () => { if (cutView) leaveCuts(); fn(); drawChips(); run(); };
+    t.querySelectorAll(".chip").forEach(chip => chip.querySelectorAll("button").forEach(b =>
+      b.onclick = edit(() => extra.splice(+chip.dataset.i, 1))));
+    t.querySelector('[data-act="clear"]').onclick = edit(() => { extra.length = 0; });
+    t.querySelector('[data-act="show"]').onclick = () => showDict(false);
+  }
+
+  function dictGo(tab, sec) {
+    dictTab = tab;
+    dictSec = sec;
+    drawDict(q("#a-dsearch").value);
+    q("#a-dlist").scrollTop = 0;
+  }
+
+  // the tabs dim, rather than vanish, when a search finds nothing in them
+  function drawDictTabs(total, nTab, searching) {
+    const el = q("#a-dtabs"), sl = el.scrollLeft;
+    el.innerHTML = DICT_TABS.map(([id, label]) => {
+      const n = id === "all" ? total : nTab[id] || 0;
+      return `<button type="button" role="tab" class="dtab${id === dictTab ? " on" : ""}${searching && !n ? " dim" : ""}"` +
+        ` aria-selected="${id === dictTab}" data-tab="${id}" title="${n} option${n === 1 ? "" : "s"}">${esc(label)}</button>`;
+    }).join("");
+    el.scrollLeft = sl;
+    el.querySelectorAll(".dtab").forEach(b => b.onclick = () => dictGo(b.dataset.tab, null));
+  }
+
+  function drawDictSecs(secs, nSec, searching) {
+    const el = q("#a-dsecs"), sl = el.scrollLeft;
+    el.hidden = dictTab === "all";
+    if (el.hidden) { el.innerHTML = ""; return; }
+    const n = s => nSec[s[0] + "|" + s[1]] || 0;
+    const total = secs.reduce((a, s) => a + n(s), 0);
+    el.innerHTML = `<button type="button" class="dsc${dictSec ? "" : " on"}" data-sec="">All<span class="n">${total}</span></button>` +
+      secs.filter(s => n(s) || searching || dictSec === s[1]).map(s =>
+        `<button type="button" class="dsc${dictSec === s[1] ? " on" : ""}${n(s) ? "" : " dim"}" data-sec="${esc(s[1])}">` +
+        `${esc(s[1])}<span class="n">${n(s)}</span></button>`).join("");
+    el.scrollLeft = sl;
+    el.querySelectorAll(".dsc").forEach(b => b.onclick = () =>
+      dictGo(dictTab, b.dataset.sec && b.dataset.sec !== dictSec ? b.dataset.sec : null));
   }
 
   function drawDict(term) {
     const list = q("#a-dlist");
     const t = (term || "").trim().toLowerCase();
-    const all = filterChoices().sort((a, b) => a.name.localeCompare(b.name));
+    const all = filterChoices();
+    // a search reaches the name, the column, the definition and the section
     const hits = all.filter(c => !t || c.name.toLowerCase().includes(t)
       || c.key.toLowerCase().includes(t) || (DESCRIBE[c.key] || "").toLowerCase().includes(t)
-      || (c.nfl && c.nfl.group.toLowerCase().includes(t)));
-    p.querySelector(".dcount").textContent =
-      hits.length + (t ? " of " + all.length : "") + " options";
-    if (!hits.length) { list.innerHTML = '<div class="dempty">Nothing matches.</div>'; return; }
-    list.innerHTML = hits.map(c => c.nfl ? `
-      <div class="dent" data-k="${esc(c.key)}">
-        <div class="dtop"><span class="dname">${esc(c.name)}</span>
-          <span class="dkind"><span class="src">NFL PRO</span>${esc(c.nfl.group)}${c.nfl.needs ? " · needs a player" : ""}</span></div>
-        <div class="ddesc">From NFL Pro's film room: one request per search, any season NFL Pro covers.</div>
-        <div class="dval">${c.nfl.values.map(([, l]) => `<b>${esc(l)}</b>`).join(" · ")}</div>
-      </div>` : `
-      <div class="dent" data-k="${esc(c.key)}">
-        <div class="dtop"><span class="dname">${esc(c.name)}</span>
-          <span class="dkey">${esc(c.key)}</span>
-          <span class="dkind">${BINARY.has(c.key) ? "yes / no"
-            : c.type === "TEXT" ? "text" : "number"}${
-            GROUPS[c.key] ? ` · ${GROUPS[c.key].members.length} cols` : ""}</span></div>
-        <div class="ddesc">${esc(DESCRIBE[c.key] || "")}</div>
-        ${lateHtml(c.key)}
-        <div class="dval"><span class="dn">…</span></div>
-      </div>`).join("");
+      || (c.nfl && c.nfl.group.toLowerCase().includes(t)) || dictPlace(c.key)[1].toLowerCase().includes(t));
+    const at = new Map(), nTab = {}, nSec = {};
+    hits.forEach(c => {
+      const [tab, sec] = dictPlace(c.key), id = tab + "|" + sec;
+      at.set(c.key, id);
+      nTab[tab] = (nTab[tab] || 0) + 1;
+      nSec[id] = (nSec[id] || 0) + 1;
+    });
+    const secs = DICT_SECS.filter(([tab]) => dictTab === "all" || tab === dictTab);
+    if (dictSec && !secs.some(s => s[1] === dictSec)) dictSec = null;
+    drawDictTabs(hits.length, nTab, !!t);
+    drawDictSecs(secs, nSec, !!t);
 
-    // picking a row is the point of the dictionary: it arms the filter box
-    list.querySelectorAll(".dent").forEach(el => el.onclick = () => {
+    let shown = 0, html = "";
+    secs.forEach(([tab, sec]) => {
+      if (dictSec && dictSec !== sec) return;
+      const rows = hits.filter(c => at.get(c.key) === tab + "|" + sec)
+        .sort((a, b) => a.name.localeCompare(b.name));
+      if (!rows.length) return;
+      shown += rows.length;
+      const label = dictTab === "all" ? DICT_TAB_NAME[tab] + " · " + sec : sec;
+      html += `<div class="dsh"><span>${esc(label)}</span><span class="n">${rows.length}</span></div>` +
+        rows.map(dictRowHtml).join("");
+    });
+    p.querySelector(".dcount").textContent = (t ? shown + " of " + all.length : shown) + " options";
+
+    if (!shown) {
+      // say where the matches are rather than "nothing" while a tab hides them
+      const inTab = dictSec ? (nTab[dictTab] || 0) : 0;
+      const where = dictSec && inTab ? [dictTab, DICT_TAB_NAME[dictTab], inTab]
+        : dictTab !== "all" && hits.length ? ["all", "All", hits.length] : null;
+      list.innerHTML = `<div class="dempty">${where
+        ? `Nothing in ${esc(dictSec || DICT_TAB_NAME[dictTab])} matches. ` +
+          `<button type="button" class="dlink" data-tab="${where[0]}">Show ${where[2]} in ${esc(where[1])}</button>`
+        : "Nothing matches."}</div>`;
+      const go = list.querySelector(".dlink");
+      if (go) go.onclick = () => dictGo(go.dataset.tab, null);
+      dictEd = null;
+      return;
+    }
+    list.innerHTML = html;
+    if (dictEd && !dictRow(dictEd.k)) dictEd = null;     // searched out of view
+
+    list.querySelectorAll(".dent").forEach(el => {
       const k = el.dataset.k;
-      colPick = k;
-      q("#a-col").value = nflDef(k) ? nflDef(k).label : humanCol(k);
-      showDict(false);
-      syncOpUI(k);
-      hint(k);
-      q("#a-val").focus();
+      // a click anywhere on the row opens its editor; the editor's own don't
+      el.onclick = e => { if (!e.target.closest(".ded")) dictToggle(k); };
+      if (nflDef(k)) wireValueClicks(el.querySelector(".dval"), k, v => dictToggle(k, { val: v }));
+      wireEditor(el);
     });
 
     if (dictObs) dictObs.disconnect();
@@ -1925,8 +2350,11 @@
   function showDict(on) {
     q("#a-dict").hidden = !on;
     q("#a-body").hidden = on;
+    closeSel();
+    dictEd = null;                  // an editor left open does not come back next time
     if (on) {
       drawDict(q("#a-dsearch").value);
+      drawDictTray();
       q("#a-dsearch").focus();
     } else if (dictObs) {
       dictObs.disconnect();
@@ -2175,11 +2603,13 @@
     return vs + more;
   }
 
-  // clicking a value in a hint or a dictionary row drops it into the filter
-  function wireValueClicks(el, col) {
+  // clicking a value in the hint drops it into the filter; the dictionary
+  // passes its own pick, which opens that row's editor with the value in it
+  function wireValueClicks(el, col, pick) {
     el.querySelectorAll("b[data-v]").forEach(b => b.onclick = e => {
       e.preventDefault();
       e.stopPropagation();
+      if (pick) { pick(b.dataset.v); return; }
       if (BINARY.has(col)) { q("#a-bool").value = b.dataset.v; return; }
       q("#a-val").value = b.dataset.v;
       q("#a-op").value = "eq";
@@ -2317,44 +2747,54 @@
         extra.splice(+chip.dataset.i, 1); drawChips(); run();
       }));
     syncPanelVisibility();
+    drawDictTray();             // the dictionary's own copy of this list
   }
+
+  /* One way in for a column filter, from the filter row or the dictionary:
+     the same checks, and one value per NFL Pro filter or yes/no flag -- a
+     second pick replaces the first, since "Play action: Yes" with "Play
+     action: No" can only ever match nothing. The same filter twice is added
+     once. Returns null once the filter is on and the search is running,
+     otherwise { msg, warn } to show where it was asked for. */
+  function addFilter(col, op, val) {
+    const d = nflDef(col), bin = !d && BINARY.has(col);
+    if (!d) {
+      if (!COLTYPE[col]) return { msg: `No such column: ${col}` };
+      // >, <, >=, <= against a text column silently matches nothing -- catch it here
+      if (!bin && COLTYPE[col] === "TEXT" && NUMOPS.includes(op))
+        return { warn: true, msg: `${humanCol(col)} is text, so “${OPSYM[op] || op}” matches 0 plays. Use = or contains.` };
+    }
+    const f = d ? { col, op: "eq", val, nfl: true } : { col, op: bin ? "eq" : op, val };
+    if (d || bin) {
+      const at = extra.findIndex(x => x.col === col);
+      if (at !== -1) extra.splice(at, 1);
+    }
+    if (!extra.some(x => x.col === f.col && x.op === f.op && x.val === f.val)) extra.push(f);
+    drawChips(); run();
+    return null;
+  }
+
   q("#a-add").onclick = () => {
     const col = resolveCol();
-    if (nflDef(col)) {
-      const val = q("#a-nflv").value;
-      // one value per NFL Pro filter: a second pick replaces the first
-      const at = extra.findIndex(f => f.col === col);
-      if (at !== -1) extra.splice(at, 1);
-      extra.push({ col, op: "eq", val, nfl: true });
-      q("#a-col").value = ""; colPick = null;
-      syncOpUI(null);
-      q("#a-hint").textContent = "";
-      drawChips(); run();
-      return;
-    }
     if (!col) {
       if (q("#a-col").value.trim())
         q("#a-hint").innerHTML = '<span style="color:#e0736b">Pick a column from the list</span>';
       return;
     }
-    if (!COLTYPE[col]) {
-      q("#a-hint").innerHTML = `<span style="color:#e0736b">No such column: ${esc(col)}</span>`;
+    const val = nflDef(col) ? q("#a-nflv").value
+      : BINARY.has(col) ? q("#a-bool").value : q("#a-val").value.trim();
+    const err = addFilter(col, q("#a-op").value, val);
+    if (err) {
+      const msg = `<span style="color:${err.warn ? "#e0a86b" : "#e0736b"}">${esc(err.msg)}</span>`;
+      q("#a-hint").innerHTML = msg;
+      // the column's values beside the warning are what show the mismatch, but
+      // hint() redraws the whole line, so the warning goes back in front after
+      if (err.warn) hint(col).then(() => q("#a-hint").insertAdjacentHTML("afterbegin", msg + " "));
       return;
     }
-    const bin = BINARY.has(col);
-    const op = bin ? "eq" : q("#a-op").value;
-    // >, <, >=, <= against a text column silently matches nothing -- catch it here
-    if (!bin && COLTYPE[col] === "TEXT" && NUMOPS.includes(op)) {
-      q("#a-hint").innerHTML =
-        `<span style="color:#e0a86b">${esc(humanCol(col))} is text, so “${esc(OPSYM[op] || op)}” matches 0 plays. Use = or contains.</span>`;
-      hint(col);
-      return;
-    }
-    extra.push({ col, op, val: bin ? q("#a-bool").value : q("#a-val").value.trim() });
     q("#a-col").value = ""; q("#a-val").value = ""; colPick = null;
     syncOpUI(null);
     q("#a-hint").textContent = "";
-    drawChips(); run();
   };
 
   // current result set + selection, shared by clicks and the keyboard
@@ -3062,7 +3502,8 @@
     }
     selMenu.innerHTML = selItems.map((it, i) => it.o
       ? `<div class="it${it.o.value === sel.value ? " on" : ""}${it.o.disabled ? " dis" : ""}" data-i="${i}">` +
-        `<span>${esc(it.o.textContent)}</span></div>`
+        // data-n: a count beside the value, as the dictionary's value menus carry
+        `<span>${esc(it.o.textContent)}${it.o.dataset.n ? `<span class="dn"> ${esc(it.o.dataset.n)}</span>` : ""}</span></div>`
       : `<div class="g" data-l="${esc(it.g)}"></div>`).join("");
     selMenu.querySelectorAll(".it").forEach(el => {
       el.onmousedown = e => e.preventDefault();      // keep focus on the select
@@ -3112,6 +3553,7 @@
     if (selFor && !selMenu.contains(e.target) && e.target !== selFor) closeSel();
   }, true);
   q("#a-body").addEventListener("scroll", closeSel);
+  q("#a-dlist").addEventListener("scroll", closeSel);
   window.addEventListener("resize", closeSel);
 
   // load the library, then take any cutup that arrived by link
@@ -3301,6 +3743,8 @@
   p.addEventListener("keydown", e => {
     if (e.key !== "Enter" || cutView) return;
     if (e.target && e.target.closest && e.target.closest("#all22-note")) return;
+    // the dictionary's Enter adds a filter, which runs the search itself
+    if (e.target && e.target.closest && e.target.closest("#a-dict")) return;
     run();
   });
 })();

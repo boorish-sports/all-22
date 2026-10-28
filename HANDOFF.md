@@ -221,7 +221,11 @@ Recently completed and verified working in the live extension:
 - **Filter dictionary.** Book icon in the header opens a searchable reference of
   all 296 options with nflverse's definition and real values from the user's own
   index. Descriptions are cleaned at generation time (238 of 337 rewritten to
-  drop type boilerplate).
+  drop type boilerplate). Options sit under category tabs and sections
+  (`DICT_RULES` in panel.js, checked by `tests/test_dict_cats.mjs`), and a row's
+  **+** opens a filter editor inside it; **Add filter** goes through the same
+  `addFilter()` as the filter row and lands in an Active filters strip at the
+  foot of the dictionary.
 - **Contrast.** All dim greys lifted; three were below WCAG AA on `#121212`.
 
 Nothing here is known-broken. There are no failing tests (there are no tests —

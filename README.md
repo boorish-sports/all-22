@@ -256,10 +256,34 @@ borrows the definition of the slot it leads with; that it spans several columns
 is plumbing, so it goes on the badge as `2 cols`, not into the sentence.
 
 The book icon in the panel header opens the dictionary: every option with its
-definition and what the column actually holds in *your* index. Search matches
-names, raw column keys and the definitions, so "scrambles" finds `pass`,
-`passer`, `play_type` and `rusher`. Picking a row arms the filter box; clicking
-a value drops it straight into the filter.
+definition and what the column actually holds in *your* index. Options are
+filed under six tabs — Offense, Defense, Special teams, Game state, Result,
+Team & game — each split into sections (Offense → Passing, Play design,
+Receiving, Rushing…), with All showing everything under section headers. The
+map is `DICT_RULES` in `panel.js`: ordered rules, first match wins, and a column
+no rule names lands in "Other" rather than disappearing.
+`tests/test_dict_cats.mjs` fails until every documented column, every column in
+the index, every merged column and every NFL Pro filter has a named home.
+
+Search matches names, raw column keys, the definitions and section names, so
+"scrambles" finds `pass`, `passer`, `play_type` and `rusher`. It searches every
+tab; tabs with no match dim, and a tab with nothing to show offers the matches
+elsewhere.
+
+Filters are added from the dictionary itself. The **+** on a row (or a click on
+the row) opens an editor inside it, shaped by the column: Yes / No for a flag,
+NFL Pro's own values for its filters, a comparison and a box for a number, the
+column's values as a menu when it has few enough to list, a box for free text.
+Clicking a value in the row opens the editor with that value filled in. **Add
+filter** (or Enter) puts it in the *Active filters* strip at the foot of the
+dictionary and runs the search behind it; the dictionary stays open so several
+can be added, and **Show plays** goes back to the list. Esc closes the editor,
+then the dictionary. The strip is the same list as the Filters panel's Added
+row, and the filter row's **+ Filter** goes through the same `addFilter()`: one
+value per yes/no flag or NFL Pro filter (a second pick replaces the first), and
+the same filter twice is added once. Because the dictionary's values are read
+under the search's own scope, every count re-reads for the narrowed set as
+filters go on — the dictionary doubles as a drill-down.
 
 `/api/values` backs both that view and the hint line under the filter row. It
 takes `col=` for one column or `cols=` for up to 40, and the profile it returns
@@ -328,6 +352,7 @@ charting columns provided by FTN Data via nflverse; the field definitions in
     node tests/test_throttle.mjs      # the NFL request gate and selection coalescing
     node tests/test_late.mjs          # the "not charted yet" notices
     node tests/test_sort.mjs          # row measures and the Sort menu
+    node tests/test_dict_cats.mjs     # every dictionary option has a tab and a section
     python3 tests/test_sync.py        # the per-part index sync in db.js
 
 `test_mirror.py` runs `server.py`/`roles.py` and the shipped `extension/db.js`
