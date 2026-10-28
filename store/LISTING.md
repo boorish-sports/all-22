@@ -101,10 +101,16 @@ user-activity, or website-content data. Certify all three statements.
     tab on the right edge. The panel downloads a public data file from
     GitHub (about 15 MB, once), then every search runs locally. Type
     "touchdown" in the "Text in description" box and click Search to see
-    results. Only clip playback requires an active NFL Pro subscription,
-    which we cannot provide; without one, clicking a play shows NFL Pro's
-    own sign-in prompt inside the panel. No test account is needed for the
-    search, filters, or dictionary.
+    results. Saving a play to a cutup (star) and writing a note (pencil)
+    work the same way and stay on the device.
+
+    Three features ask NFL Pro itself and so need an active NFL Pro
+    subscription, which we cannot provide: clip playback, the NFL Pro
+    filters in the "Any filter" box and the Action menu (routes run,
+    coverage snaps, pass-rush snaps, On field...), and the On field list of
+    the 22 players on a play. Without a subscription, clicking a play shows
+    NFL Pro's own sign-in prompt inside the panel. No test account is needed
+    for the search, the nflverse filters, cutups, notes, or the dictionary.
 
 ## Distribution tab
 
